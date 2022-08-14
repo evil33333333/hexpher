@@ -13,13 +13,22 @@
 class GUI {
 public:
 	const std::string cyan_plus = Colors[White] + "[" + Colors[Cyan] + "+" + Colors[White] + "]";
+
+	void configure_console()
+	{
+		HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+		DWORD current_conosle_mode{};
+		GetConsoleMode(handle, &current_conosle_mode);
+		current_conosle_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
+		SetConsoleMode(handle, current_conosle_mode);
+	}
 };
 
 int main(int argc, char* argv[]) 
 {
 
 	GUI gui;
-
+	gui.configure_console();
 	if (argc != 2)
 	{
 		return -1;
@@ -27,27 +36,10 @@ int main(int argc, char* argv[])
 
 
 	SetConsoleTitleA("hexpher: the go decompiler | developed by lucifers wife");
-	FILE* file = fopen(argv[1], "rb");
-	if (!file)
-	{
-		return -1;
-	}
-
-	fseek(file, 0L, SEEK_END);
-	long numbytes = ftell(file);
-	fseek(file, 0L, SEEK_SET);
-	char* bytes = (char*)calloc(numbytes, sizeof(char));
-
-	if (!bytes)
-	{
-		return -1;
-	}
-
-	fread(bytes, sizeof(char), numbytes, file);
-	fclose(file);
+	f_content fc = get_file_content(argv[1]);
 	
-	std::vector<std::string> names = get_function_names(bytes, numbytes);
-	
+	std::vector<std::string> names = get_function_names(fc.buffer, fc.size);
+	std::vector<pe_section> sections = find_pe_sections(argv[1]);
 
 
 	std::cout << gui.cyan_plus << " Found " << names.size() << " total function names in this Go binary!\n" << std::endl;
@@ -68,6 +60,7 @@ int main(int argc, char* argv[])
 
 
 	std::vector<std::string> imports = get_all_imports(names);
+	
 
 
 	std::cout << "[" << Colors[Cyan] << "imported packages" << Colors[White] << "]\n";
@@ -81,15 +74,47 @@ int main(int argc, char* argv[])
 	imports_text += ")\n";
 	std::cout << imports_text << std::endl;
 
-	std::cout << "[" << Colors[Cyan] << "function content" << Colors[White] << "]";
-	std::vector<Function> funcs = get_all_go_functions(bytes, numbytes);
+	std::vector<Function> funcs = get_all_go_functions(fc.buffer, fc.size);
 
-	for (auto& func : funcs)
+	
+	
+	define_main_pkg_funcs(&funcs, &user_funcs);
+
+	
+
+	std::cout << "[" << Colors[Cyan] << "string content" << Colors[White] << "]";
+	std::string string_content_text;
+	for (uint32_t i = 0; i < funcs.size(); i++)
 	{
-		std::string code = translate_function(&func);
-		std::cout << code << std::endl << std::endl;
+		if (funcs[i].from_main_pkg)
+		{
+			std::vector<std::string> strings = get_strings_from_function(&funcs[i], fc.buffer);
+			
+			for (auto const& str : strings)
+			{
+				string_content_text += gui.cyan_plus;
+				string_content_text += " string: \"";
+				string_content_text += Colors[Cyan];
+				string_content_text += str;
+				string_content_text += Colors[White];
+				string_content_text += "\"\n";
+				string_content_text += Colors[White];
+			}
+			
+		}
+	}
+	std::cout << std::endl << string_content_text << std::endl << std::endl;
+
+	for (uint32_t i = 0; i < funcs.size(); i++)
+	{
+		if (funcs[i].from_main_pkg)
+		{
+			std::string psuedo_code = translate_function(&funcs[i], fc.buffer);
+			std::cout << psuedo_code << std::endl << std::endl;
+		}
 	}
 	
+
 	std::cin.get();
 	return 0;
 }

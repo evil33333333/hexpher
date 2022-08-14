@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <array>
 #include <format>
+#include <map>
+#include <queue>
 
 extern "C" {
 #include "disassembler.h"
@@ -17,6 +19,7 @@ struct Function
 	std::uintptr_t start_addr;
 	std::string function_name;
 	std::vector<std::pair<std::string, std::string>> instructions;
+	bool from_main_pkg = false;
 };
 
 // Every 32 bit Go binary starts a function with these bytes
@@ -67,8 +70,10 @@ inline unsigned char gofunc_label_terminator[] = { 0x00, 0x00, 0x00, 0x00, 0x00,
 //};
 
 
-std::string translate_function(Function* function);
+std::string translate_function(Function* function, char* buffer);
 std::vector<std::string> get_function_names(char* buffer, size_t buff_size);
 std::vector<Function> get_all_go_functions(char* buffer, size_t buff_size);
+std::vector<std::string> get_strings_from_function(Function* function, char* buffer);
 std::vector<std::string> get_all_user_defined_functions(const std::vector<std::string>& total_funcs);
 std::vector<std::string> get_all_imports(const std::vector<std::string>& func_names);
+void define_main_pkg_funcs(std::vector<Function>* functions, std::vector<std::string>* names);

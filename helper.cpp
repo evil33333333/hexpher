@@ -1,6 +1,8 @@
 #include "helper.h"
 #include "transmitter.h"
 
+
+
 size_t return_file_size(std::ifstream *file) 
 {
 	file->seekg(0, std::ios::end);
@@ -129,4 +131,88 @@ template <typename T> uint32_t find_index(std::vector<T>* vec, T item)
 	{
 		return it - vec->begin();
 	}
+}
+
+
+f_content get_file_content(const std::string& filename)
+{
+	f_content fc;
+	std::memset((void*)&fc, 0x00, sizeof(f_content)); 
+
+	FILE* file = fopen(filename.c_str(), "rb");
+	if (!file)
+	{
+		return fc;
+	}
+
+	fseek(file, 0L, SEEK_END);
+	long numbytes = ftell(file);
+	fseek(file, 0L, SEEK_SET);
+	char* bytes = (char*)calloc(numbytes, sizeof(char));
+
+	if (!bytes)
+	{
+		return fc;
+	}
+
+	fread(bytes, sizeof(char), numbytes, file);
+
+	fc.buffer = bytes;
+	fc.size = numbytes;
+	fc.ok;
+
+	fclose(file);
+
+	return fc;
+}
+
+
+void hexdump(FILE* file, int position, unsigned char* buffer)
+{
+	memset(buffer, 0, 0x500);
+	fseek(file, position, SEEK_SET);
+	(void)fread_s(buffer, 0x500, 1, 0x400, file);
+
+}
+
+PIMAGE_NT_HEADERS64 get_pimage_nt_headers(unsigned char* buffer, char* filename)
+{
+	
+	FILE* file = fopen(filename, "rb");
+	hexdump(file, 0, buffer);
+
+	std::vector<pe_section> sections;
+	PIMAGE_DOS_HEADER dhead = (PIMAGE_DOS_HEADER)buffer;
+	hexdump(file, dhead->e_lfanew, buffer);
+
+	fclose(file);
+	
+	PIMAGE_NT_HEADERS64 nt_headers = (PIMAGE_NT_HEADERS64)buffer;
+	return nt_headers;
+	
+}
+
+std::vector<pe_section> find_pe_sections(char* filename)
+{
+	std::vector<pe_section> sections;
+	unsigned char buffer[0x500] = { 0 };
+	PIMAGE_NT_HEADERS64 nt_headers = get_pimage_nt_headers(buffer, filename);
+	PIMAGE_SECTION_HEADER pimage_sh = IMAGE_FIRST_SECTION(nt_headers);
+
+	for (WORD i = 0; i < nt_headers->FileHeader.NumberOfSections; i++)
+	{
+		std::string name(reinterpret_cast<char*>(pimage_sh->Name), 8);
+
+		pe_section pe_section{
+			name,
+			pimage_sh->VirtualAddress,
+			pimage_sh->PointerToRawData,
+			pimage_sh->SizeOfRawData,
+		};
+		sections.push_back(pe_section);
+		
+		pimage_sh++;
+	}
+	
+	return sections;
 }
