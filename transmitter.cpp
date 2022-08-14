@@ -14,15 +14,6 @@ std::string translate_function(Function* function, char* buffer)
 	std::string psuedo_code = std::format("func {}()\n", function->function_name);
 	psuedo_code += "{\n";
 
-
-	/*s_result println_res = search_for_byte_pattern(&function->instructions, "89 ?? ?? 89 ?? ?? ?? 8d ?? ?? ?? 89 ?? ?? ?? c7 ?? ?? ?? 01 00 00 00 c7 ?? ?? ?? 01 00 00 00 e8");
-	if (println_res.found)
-	{
-		psuedo_code += std::format("\tfmt.Println([unknown_ptr (bad_static_ptr)])\n");
-		start_point = println_res.index_found + 1;
-	}*/
-	
-
 	// Skips the runtime.MoreStackNoCtxt jmp and the sub, rsp [0x??]
 	for (size_t i = start_point; i < function->instructions.size(); i++)
 	{
