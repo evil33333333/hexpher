@@ -43,6 +43,7 @@ std::uintptr_t find_next_function(std::uintptr_t prev_ret_addr, std::vector<unsi
 }
 
 
+
 std::vector<std::string> split_string(std::string content, std::string delimiter)
 {
 	size_t pos_start = 0, pos_end, delim_len = delimiter.length();
@@ -58,6 +59,30 @@ std::vector<std::string> split_string(std::string content, std::string delimiter
 
 	res.push_back(content.substr(pos_start));
 	return res;
+}
+
+std::vector<std::string> get_raw_bytes(std::string& byte_string)
+{
+	for (;;)
+	{
+		if (byte_string.find("ffffff") != std::string::npos)
+		{
+			byte_string.replace(byte_string.find("ffffff"), 6, "");
+		}
+		else
+		{
+			break;
+		}
+	}
+	std::vector<std::string> raw_bytes = split_string(byte_string, " ");
+	raw_bytes.erase(std::remove_if(raw_bytes.begin(), raw_bytes.end(),
+		[](const std::string& x)
+		{
+			return x.find("") != std::string::npos;
+		}
+	), raw_bytes.end());
+	return raw_bytes;
+
 }
 
 s_result search_for_byte_pattern(std::vector<std::pair<std::string, std::string>>* instructions, std::string byte_pattern)
@@ -215,4 +240,18 @@ std::vector<pe_section> find_pe_sections(char* filename)
 	}
 	
 	return sections;
+}
+
+std::string string_to_hex(const std::string& input)
+{
+	static const char hex_digits[] = "0123456789ABCDEF";
+
+	std::string output;
+	output.reserve(input.length() * 2);
+	for (unsigned char c : input)
+	{
+		output.push_back(hex_digits[c >> 4]);
+		output.push_back(hex_digits[c & 15]);
+	}
+	return output;
 }

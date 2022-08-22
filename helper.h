@@ -37,6 +37,11 @@ f_content get_file_content(
 	const std::string& filename
 );
 
+
+std::vector<std::string> get_raw_bytes(
+	std::string& byte_string
+);
+
 template <typename T> uint32_t find_index(
 	std::vector<T>* vec,
 	T item
@@ -67,4 +72,8 @@ void populate_buffer(
 	std::vector<unsigned char>* new_buffer,
 	char* old_buffer,
 	size_t old_buffer_size
+);
+
+std::string string_to_hex(
+	const std::string& input
 );
