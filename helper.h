@@ -10,8 +10,9 @@ struct s_result
 	int index_found = -1;
 };
 
-struct f_content
+class f_content
 {
+public:
 	char* buffer;
 	size_t size;
 	bool ok = false;
@@ -76,4 +77,13 @@ void populate_buffer(
 
 std::string string_to_hex(
 	const std::string& input
+);
+
+std::string duplicate_string(
+	std::string text,
+	uint32_t times
+);
+
+std::string find_last_function(
+	std::vector<std::string>* names
 );

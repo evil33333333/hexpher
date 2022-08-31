@@ -1,7 +1,7 @@
 #include "transmitter.h"
 #include "helper.h"
 
-std::string translate_function(Function* function, std::vector<Function>* all_functions, char* buffer, size_t b_size, std::uintptr_t rdata_start)
+std::string translate_function(TMessage* tmsg)
 {
 	uint32_t start_point = 0x04;
 	uint32_t string_count = 0x00;
@@ -11,127 +11,74 @@ std::string translate_function(Function* function, std::vector<Function>* all_fu
 	std::queue<std::string> stack;
 	std::vector<uint32_t> instructions_used;
 	std::map<std::string, std::uintptr_t> integer_variables;
-	std::string psuedo_code = std::format("func {}()\n", function->function_name);
+
+	tmsg->instructions_used = &instructions_used;
+	std::string psuedo_code = std::format("func {}()\n", tmsg->function->function_name);
 	psuedo_code += "{\n";
 
-
-	/*s_result println_res = search_for_byte_pattern(&function->instructions, "89 ?? ?? 89 ?? ?? ?? 8d ?? ?? ?? 89 ?? ?? ?? c7 ?? ?? ?? 01 00 00 00 c7 ?? ?? ?? 01 00 00 00 e8");
-	if (println_res.found)
+	for (size_t i = start_point; i < tmsg->function->ibuffers.size(); i++)
 	{
-		psuedo_code += std::format("\tfmt.Println([unknown_ptr (bad_static_ptr)])\n");
-		start_point = println_res.index_found + 1;
-	}*/
-	
-
-	// Skips the runtime.MoreStackNoCtxt jmp and the sub, rsp [0x??]
-	for (size_t i = start_point; i < function->ibuffers.size(); i++)
-	{
-
 		if (std::find(instructions_used.begin(), instructions_used.end(), i) == instructions_used.end())
 		{
-
-			// runtime.NewObject
-			/*
-				call    runtime_newobject
-				mov     eax, [esp+28h+var_24]
-				mov     dword ptr [eax+4], 0x27
-				lea     ecx, 0x6B246E
-			
-			*/
-			/*if (function->ibuffers[i].instruction == Instruction::MOV && function->ibuffers[i + 1].instruction == Instruction::LEA && split_string(function->ibuffers[i].raw_asm, ",")[1][0] != 'e')
-			{
-				
-
-				int value;
-				std::uintptr_t address;
-				std::string string;
-
-				std::istringstream ss(split_string(function->ibuffers[i].raw_asm, ",")[1]);
-				ss >> std::hex >> value;
-
-				std::istringstream str_virtaddr(split_string(split_string(function->ibuffers[i + 1].raw_asm, "[")[1], "]")[0]);
-				str_virtaddr >> std::hex >> address;
-
-				address = address - 0x00400C00;
-				if (address > rdata_start && address < b_size)
-				{
-					instructions_used.push_back(i);
-					instructions_used.push_back(i + 1);
-					for (int ptr = address; ptr < address + value; ptr++)
-					{
-						string += buffer[ptr];
-					}
-					psuedo_code += std::format("\tstring_{} := \"{}\"\n", string_count, string);
-					stack.push(std::format("string_{}", string_count));
-					string_count++;
-					continue;
-				}
-
-
-				
-			}*/
-
-			if (function->ibuffers[i].instruction == Instruction::CALL)
+			if (tmsg->function->ibuffers[i].instruction == Instruction::CALL)
 			{
 
 				instructions_used.push_back(i);
 				std::uintptr_t func_addr;
 				std::stringstream stream;
-				std::string func_addr_str = split_string(function->ibuffers[i].raw_asm, " ")[1];
+				std::string func_addr_str = split_string(tmsg->function->ibuffers[i].raw_asm, " ")[1];
 				stream << std::hex << func_addr_str;
 				stream >> func_addr;
-				std::string function_name = find_function_name(all_functions, func_addr);
+				std::string function_name = find_function_name(tmsg->all_functions, func_addr);
 
 
-				if (function->ibuffers[i + 1].raw_asm.find("mov e") != std::string::npos && function->ibuffers[i - 2].instruction == Instruction::LEA)
+				if (tmsg->function->ibuffers[i + 1].raw_asm.find("mov e") != std::string::npos && tmsg->function->ibuffers[i - 2].instruction == Instruction::LEA)
 				{
 					instructions_used.push_back(i + 1);
-					psuedo_code += std::format("\tdata, err := {}(", function_name);
+					psuedo_code += std::format("{}data, err := {}(", duplicate_string(tab_string, tmsg->indent_level), function_name);
 				}
 				else
 				{
-					psuedo_code += std::format("\tdata := {}(", function_name);
+					psuedo_code += std::format("{}data := {}(", duplicate_string(tab_string, tmsg->indent_level), function_name);
 				}
 				while (!stack.empty())
 				{
 					psuedo_code += stack.size() == 1 ? std::format("{}", stack.front()) : std::format("{}, ", stack.front());
 					stack.pop();
 				}
-				psuedo_code += ")\n";
+				psuedo_code += ")\n\n";
 			}
-			//psuedo_code += std::format("\t{}\n", function->instructions[i].second);
 
-			if (function->ibuffers[i].raw_asm.find("mov BYTE PTR") != std::string::npos)
+			if (tmsg->function->ibuffers[i].raw_asm.find("mov BYTE PTR") != std::string::npos)
 			{
 				instructions_used.push_back(i);
 
 				int value;
 				std::stringstream stream;
-				std::string byte_string = split_string(function->ibuffers[i].raw_asm, ",")[1];
+				std::string byte_string = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
 
 				stream << std::hex << byte_string;
 				stream >> value;
 
 
-				psuedo_code += std::format("\tvar boolean_{} bool = {}\n", boolean_count, value == 1 ? "true" : "false");
+				psuedo_code += std::format("{}var boolean_{} bool = {}\n", duplicate_string(tab_string, tmsg->indent_level), boolean_count, value == 1 ? "true" : "false");
 				stack.push(std::format("boolean_{}", boolean_count));
 				boolean_count++;
 			}
 
-			if (function->ibuffers[i].raw_asm.find("mov DWORD PTR") != std::string::npos && function->ibuffers[i - 1].instruction != Instruction::LEA)
+			if (tmsg->function->ibuffers[i].raw_asm.find("mov DWORD PTR") != std::string::npos && tmsg->function->ibuffers[i - 1].instruction != Instruction::LEA)
 			{
 				signed int value;
 				std::uintptr_t address;
 				std::stringstream stream;
 				instructions_used.push_back(i);
-				std::string integer = split_string(function->ibuffers[i].raw_asm, ",")[1];
+				std::string integer = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
 
 				if (integer[0] == 'e')
 				{
-					psuedo_code += std::format("\tvar integer_{} int\n", int_count);
-					std::string int_addr = split_string(split_string(function->ibuffers[i].raw_asm, "[")[1], "]")[0];
+					psuedo_code += std::format("{}var integer_{} int\n", duplicate_string(tab_string, tmsg->indent_level), int_count);
+					std::string int_addr = split_string(split_string(tmsg->function->ibuffers[i].raw_asm, "[")[1], "]")[0];
 
-					// if we are doing, mov from variable to register, skip
 					if (int_addr[0] == 'e')
 					{
 						continue;
@@ -148,7 +95,7 @@ std::string translate_function(Function* function, std::vector<Function>* all_fu
 				{
 					stream << std::hex << integer;
 					stream >> value;
-					psuedo_code += std::format("\tinteger_{} := {}\n", int_count, value);
+					psuedo_code += std::format("{}integer_{} := {}\n", duplicate_string(tab_string, tmsg->indent_level), int_count, value);
 					stack.push(std::format("integer_{}", int_count));
 					stream.clear();
 				}
@@ -156,128 +103,480 @@ std::string translate_function(Function* function, std::vector<Function>* all_fu
 			}
 
 
-			if (function->ibuffers[i].instruction == Instruction::TEST && function->ibuffers[i + 1].instruction == Instruction::JZ)
+			if (tmsg->function->ibuffers[i].instruction == Instruction::TEST && tmsg->function->ibuffers[i + 1].instruction == Instruction::JZ)
 			{
 				instructions_used.push_back(i);
 				instructions_used.push_back(i + 1);
-				psuedo_code += "\tif err != nil {  \n\t\tpanic(err)\n  \t}\n";
+				psuedo_code += duplicate_string(tab_string, tmsg->indent_level);
+				psuedo_code += "if err != nil {  \n\t\tpanic(err)\n  \t}\n";
 			}
 
 
-			if (function->ibuffers[i].instruction == Instruction::ADD)
+			// if else statement
+			if (tmsg->function->ibuffers[i].instruction == Instruction::ADC && tmsg->function->ibuffers[i + 1].raw_asm[0] == 'j')
 			{
-				if (function->ibuffers[i].raw_asm.find("BYTE PTR") != std::string::npos)
+
+				instructions_used.push_back(i);
+				instructions_used.push_back(i + 1);
+				if (tmsg->function->ibuffers[i].raw_asm.find("DWORD PTR") != std::string::npos)
 				{
-					char byte;
-					instructions_used.push_back(i);
+					int value;
+					std::uintptr_t jmp_addr;
+
 					std::stringstream stream;
-					std::string bytestr = split_string(function->ibuffers[i].raw_asm, ",")[1];
-					stream << std::hex << bytestr;
+					std::string int_string = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
+					stream << std::hex << int_string;
+					stream >> value;
+					stream.clear();
 
-					stream >> byte;
+					std::string jmp_addr_str = split_string(tmsg->function->ibuffers[i + 1].raw_asm, " ")[1];
+					stream << std::hex << jmp_addr_str;
+					stream >> jmp_addr;
 
-					psuedo_code += std::format("\tif data[0] == \"{}\"", byte);
-					psuedo_code += " { BETA_CMP_BLOCK }\n";
+					
+					psuedo_code += std::format("{}if data {}= {} ", duplicate_string(tab_string, tmsg->indent_level), Instruction::JNE == tmsg->function->ibuffers[i + 1].instruction ? "!" : "=", value);
+					psuedo_code += "{\n";
+
+					tmsg->indent_level++;
+					tmsg->jmp_addr = jmp_addr;
+					psuedo_code += translate_block(tmsg);
+					psuedo_code += " else {\n\t";
+
 				}
 			}
 
-
-			if (function->ibuffers[i].instruction == Instruction::LEA && function->ibuffers[i].raw_asm.find(",[e") == std::string::npos && function->ibuffers[i + 2].instruction == Instruction::MOV)
+			// this could be an [if, else if, else] or this could be a switch block
+			if (tmsg->function->ibuffers[i].instruction == Instruction::ADC && tmsg->function->ibuffers[i + 1].raw_asm[0] == 'j')
 			{
-				int virtual_address = 0;
-				int string_size = 0;
-				bool found_nested_ptr = false;
-
-				std::string string;
-				std::stringstream stream;
-
-				instructions_used.push_back(i);
-				
-
-				std::string string_addr = split_string(split_string(function->ibuffers[i].raw_asm, "[")[1], "]")[0];
-				stream << std::hex << string_addr;
-				stream >> virtual_address;
-
-				stream.clear();
-
-				std::string str_size = split_string(function->ibuffers[i + 2].raw_asm, ",")[1];
-
-
-				instructions_used.push_back(i + 1);
-				if (str_size[0] != 'e')
+				bool first_if_present = false;
+				for (;;)
 				{
-
-					// potentially a wrapped string
-					if (str_size.find("DWORD PTR") != std::string::npos)
+					instructions_used.push_back(i);
+					instructions_used.push_back(i + 1);
+					if (tmsg->function->ibuffers[i].raw_asm.find("adc e") != std::string::npos)
 					{
-						virtual_address = virtual_address - 0x00400E00;
+						int value;
+						std::uintptr_t jmp_addr;
 
-						// Check for dword ptr (Go may wrap strings in two ptrs [idk why])
-						std::uintptr_t string_ptr = 0x00;
-						// get first 4 bytes of string
-						std::string _byte;
-						std::string text;
-						for (int ptr = virtual_address + 0x03; ptr != virtual_address - 0x01; ptr--)
+						std::stringstream stream;
+						std::string int_string = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
+						stream << std::hex << int_string;
+						stream >> value;
+						stream.clear();
+
+						std::string jmp_addr_str = split_string(tmsg->function->ibuffers[i + 1].raw_asm, " ")[1];
+						stream << std::hex << jmp_addr_str;
+
+						stream >> jmp_addr;
+
+						if (!first_if_present)
 						{
-							_byte = buffer[ptr];
-							text += string_to_hex(_byte);
-							//std::memset(reinterpret_cast<void*>(&string_ptr + (ptr + virtual_address)), buffer[ptr], sizeof(char));
+							psuedo_code += std::format("{}if data {}= {} ", duplicate_string(tab_string, tmsg->indent_level), Instruction::JNE == tmsg->function->ibuffers[i + 1].instruction ? "!" : "=", value);
+							psuedo_code += "{\n";
+							first_if_present = true;
 						}
-						//std::string string_ptr_addr = std::format("{}", string_to_hex(text));
-						std::istringstream ss(text);
-						ss >> std::hex >> string_ptr;
-						text.clear();
-
-						std::uintptr_t wrapper_str_start = string_ptr - 0x00400E00;
-
-						for (int ptr = virtual_address + 0x07; ptr != virtual_address + 0x03; ptr--)
+						else if (tmsg->function->ibuffers[i].instruction == Instruction::ADC && tmsg->function->ibuffers[i + 1].instruction == Instruction::JE || tmsg->function->ibuffers[i + 1].instruction == Instruction::JNE)
 						{
-							_byte = buffer[ptr];
-							text += string_to_hex(_byte);
-							//std::memset(reinterpret_cast<void*>(&string_ptr + (ptr + virtual_address)), buffer[ptr], sizeof(char));
-						}
+							psuedo_code += std::format(" else if data {}= {} ",  Instruction::JNE == tmsg->function->ibuffers[i + 1].instruction ? "!" : "=", value);
+							psuedo_code += "{\n";
 
-						std::istringstream dw_string(text);
-						dw_string >> std::hex >> string_size;
-
-						if (wrapper_str_start < rdata_start || wrapper_str_start > b_size || wrapper_str_start + string_size > b_size)
-						{
-							continue;
 						}
 
 						
-						for (int ptr = wrapper_str_start; ptr < wrapper_str_start + string_size; ptr++)
+						tmsg->indent_level++;
+						tmsg->jmp_addr = jmp_addr;
+						psuedo_code += translate_block(tmsg);
+
+						if (tmsg->function->ibuffers[i + 2].instruction == Instruction::ADC)
 						{
-							string += buffer[ptr];
+							i += 2;
 						}
-						psuedo_code += std::format("\tstring_{} := \"{}\"\n", string_count, string);
-						stack.push(std::format("string_{}", string_count));
-						string_count++;
-					}
-
-					else
-					{
-						instructions_used.push_back(i + 2);
-						stream << std::hex << str_size;
-						stream >> string_size;
-						stream.clear();
-
-						virtual_address = virtual_address - 0x00400C00;
-
-						for (int ptr = virtual_address; ptr < virtual_address + string_size; ptr++)
+						else
 						{
-							string += buffer[ptr];
+							psuedo_code += " else {\n";
+							break;
 						}
-						psuedo_code += std::format("\tstring_{} := \"{}\"\n", string_count, string);
-						stack.push(std::format("string_{}", string_count));
-						string_count++;
+
 					}
 				}
 				
+			}
+
+			if (tmsg->function->ibuffers[i].instruction == Instruction::LEA && tmsg->function->ibuffers[i].raw_asm.find(",[e") == std::string::npos && tmsg->function->ibuffers[i + 2].instruction == Instruction::MOV)
+			{
+
+				if (tmsg->wrapped_image_base != 0xFFFFFFFF || tmsg->image_base != 0xFFFFFFFF)
+				{
+					int virtual_address = 0;
+					int string_size = 0;
+					bool found_nested_ptr = false;
+
+					std::string string;
+					std::stringstream stream;
+
+					instructions_used.push_back(i);
+
+
+					std::string string_addr = split_string(split_string(tmsg->function->ibuffers[i].raw_asm, "[")[1], "]")[0];
+					stream << std::hex << string_addr;
+					stream >> virtual_address;
+
+					stream.clear();
+
+					std::string str_size = split_string(tmsg->function->ibuffers[i + 2].raw_asm, ",")[1];
+
+
+					instructions_used.push_back(i + 1);
+					if (str_size[0] != 'e')
+					{
+						if (str_size.find("DWORD PTR") != std::string::npos)
+						{
+
+							if (tmsg->wrapped_image_base != 0xFFFFFFFF)
+							{
+								virtual_address = virtual_address - tmsg->wrapped_image_base;
+
+								std::uintptr_t string_ptr = 0x00;
+								std::string _byte;
+								std::string text;
+								for (int ptr = virtual_address + 0x03; ptr != virtual_address - 0x01; ptr--)
+								{
+									_byte = tmsg->buffer[ptr];
+									text += string_to_hex(_byte);
+								}
+								std::istringstream ss(text);
+								ss >> std::hex >> string_ptr;
+								text.clear();
+
+								std::uintptr_t wrapper_str_start = string_ptr - tmsg->wrapped_image_base;
+
+								for (int ptr = virtual_address + 0x07; ptr != virtual_address + 0x03; ptr--)
+								{
+									_byte = tmsg->buffer[ptr];
+									text += string_to_hex(_byte);
+								}
+
+								std::istringstream dw_string(text);
+								dw_string >> std::hex >> string_size;
+
+								if (wrapper_str_start < tmsg->rdata_start || wrapper_str_start > tmsg->b_size || wrapper_str_start + string_size > tmsg->b_size)
+								{
+									continue;
+								}
+
+								for (int ptr = wrapper_str_start; ptr < wrapper_str_start + string_size; ptr++)
+								{
+									string += tmsg->buffer[ptr];
+								}
+								psuedo_code += std::format("{}string_{} := \"{}\"\n", duplicate_string(tab_string, tmsg->indent_level), string_count, string);
+								stack.push(std::format("string_{}", string_count));
+								string_count++;
+							}
+							
+						}
+
+						else
+						{
+							if (tmsg->image_base != 0xFFFFFFFF)
+							{
+								instructions_used.push_back(i + 2);
+								stream << std::hex << str_size;
+								stream >> string_size;
+								stream.clear();
+
+								virtual_address = virtual_address - tmsg->image_base;
+
+								for (int ptr = virtual_address; ptr < virtual_address + string_size; ptr++)
+								{
+									string += tmsg->buffer[ptr];
+								}
+								psuedo_code += std::format("{}string_{} := \"{}\"\n", duplicate_string(tab_string, tmsg->indent_level), string_count, string);
+								stack.push(std::format("string_{}", string_count));
+								string_count++;
+							}
+						}
+					}
+				}
 			}
 		}
 	}
 	psuedo_code += "\n}";
+	return psuedo_code;
+}
+
+std::string translate_block(TMessage* tmsg)
+{
+	size_t i;
+	for (i = 0; i < tmsg->function->ibuffers.size(); i++)
+	{
+		if (tmsg->function->ibuffers[i].address == tmsg->jmp_addr)
+		{
+			break;
+		}
+	}
+	uint32_t string_count = 0x00;
+	uint32_t int_count = 0x00;
+	uint32_t boolean_count = 0x00;
+
+	std::queue<std::string> stack;
+	std::map<std::string, std::uintptr_t> integer_variables;
+	std::string psuedo_code;
+
+	for (; i < tmsg->function->ibuffers.size(); i++)
+	{
+
+		if (std::find(tmsg->instructions_used->begin(), tmsg->instructions_used->end(), i) == tmsg->instructions_used->end())
+		{
+			if (tmsg->function->ibuffers[i].instruction == Instruction::JMP)
+			{
+				tmsg->indent_level--;
+				return psuedo_code;
+			}
+
+
+			if (tmsg->function->ibuffers[i].instruction == Instruction::CALL)
+			{
+
+				tmsg->instructions_used->push_back(i);
+				std::uintptr_t func_addr;
+				std::stringstream stream;
+				std::string func_addr_str = split_string(tmsg->function->ibuffers[i].raw_asm, " ")[1];
+				stream << std::hex << func_addr_str;
+				stream >> func_addr;
+				std::string function_name = find_function_name(tmsg->all_functions, func_addr);
+
+
+				if (tmsg->function->ibuffers[i + 1].raw_asm.find("mov e") != std::string::npos && tmsg->function->ibuffers[i - 2].instruction == Instruction::LEA)
+				{
+					tmsg->instructions_used->push_back(i + 1);
+					psuedo_code += std::format("{}data, err := {}(", duplicate_string(tab_string, tmsg->indent_level), function_name);
+				}
+				else
+				{
+					psuedo_code += std::format("{}data := {}(", duplicate_string(tab_string, tmsg->indent_level), function_name);
+				}
+				while (!stack.empty())
+				{
+					psuedo_code += stack.size() == 1 ? std::format("{}", stack.front()) : std::format("{}, ", stack.front());
+					stack.pop();
+				}
+				psuedo_code += ")\n\n\t";
+			}
+
+			if (tmsg->function->ibuffers[i].raw_asm.find("mov BYTE PTR") != std::string::npos)
+			{
+				tmsg->instructions_used->push_back(i);
+
+				int value;
+				std::stringstream stream;
+				std::string byte_string = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
+
+				stream << std::hex << byte_string;
+				stream >> value;
+
+
+				psuedo_code += std::format("{}var boolean_{} bool = {}\n", duplicate_string(tab_string, tmsg->indent_level), boolean_count, value == 1 ? "true" : "false");
+				stack.push(std::format("boolean_{}", boolean_count));
+				boolean_count++;
+			}
+
+			if (tmsg->function->ibuffers[i].raw_asm.find("mov DWORD PTR") != std::string::npos && tmsg->function->ibuffers[i - 1].instruction != Instruction::LEA)
+			{
+				signed int value;
+				std::uintptr_t address;
+				std::stringstream stream;
+				tmsg->instructions_used->push_back(i);
+				std::string integer = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
+
+				if (integer[0] == 'e')
+				{
+					psuedo_code += std::format("{}var integer_{} int\n", duplicate_string(tab_string, tmsg->indent_level), int_count);
+					std::string int_addr = split_string(split_string(tmsg->function->ibuffers[i].raw_asm, "[")[1], "]")[0];
+
+					// if we are doing, mov from variable to register, skip
+					if (int_addr[0] == 'e')
+					{
+						continue;
+					}
+
+					stream << std::hex << int_addr;
+					stream >> address;
+
+					integer_variables[std::format("integer_{}", int_count)] = address;
+					stack.push(std::format("integer_{}", int_count));
+
+				}
+				else
+				{
+					stream << std::hex << integer;
+					stream >> value;
+					psuedo_code += std::format("{}integer_{} := {}\n", duplicate_string(tab_string, tmsg->indent_level), int_count, value);
+					stack.push(std::format("integer_{}", int_count));
+					stream.clear();
+				}
+				int_count++;
+			}
+
+
+			if (tmsg->function->ibuffers[i].instruction == Instruction::TEST && tmsg->function->ibuffers[i + 1].instruction == Instruction::JZ)
+			{
+				tmsg->instructions_used->push_back(i);
+				tmsg->instructions_used->push_back(i + 1);
+				psuedo_code += duplicate_string(tab_string, tmsg->indent_level);
+				psuedo_code += "if err != nil {  \n\t\tpanic(err)\n  \t}\n";
+			}
+
+
+			if (tmsg->function->ibuffers[i].instruction == Instruction::ADD)
+			{
+				if (tmsg->function->ibuffers[i].raw_asm.find("BYTE PTR") != std::string::npos)
+				{
+					char byte;
+					tmsg->instructions_used->push_back(i);
+					std::stringstream stream;
+					std::string bytestr = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
+					stream << std::hex << bytestr;
+
+					stream >> byte;
+
+					psuedo_code += std::format("{}if data[0] == \"{}\"", duplicate_string(tab_string, tmsg->indent_level), byte);
+					psuedo_code += " { BETA_CMP_BLOCK }\n";
+				}
+			}
+
+			if (tmsg->function->ibuffers[i].instruction == Instruction::ADC && tmsg->function->ibuffers[i + 1].raw_asm[0] == 'j')
+			{
+
+				tmsg->instructions_used->push_back(i);
+				tmsg->instructions_used->push_back(i + 1);
+				if (tmsg->function->ibuffers[i].raw_asm.find("DWORD PTR") != std::string::npos)
+				{
+					int value;
+					std::uintptr_t jmp_addr;
+
+					std::stringstream stream;
+					std::string int_string = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
+					stream << std::hex << int_string;
+					stream >> value;
+					stream.clear();
+
+					std::string jmp_addr_str = split_string(tmsg->function->ibuffers[i + 1].raw_asm, " ")[1];
+					stream << std::hex << jmp_addr_str;
+					stream >> jmp_addr;
+
+
+					psuedo_code += std::format("{}if data {}= {} ", duplicate_string(tab_string, tmsg->indent_level), Instruction::JNE == tmsg->function->ibuffers[i + 1].instruction ? "!" : "=", value);
+					psuedo_code += "{\n";
+
+					tmsg->indent_level++;
+					
+					psuedo_code += translate_block(tmsg);
+					psuedo_code += " else {\n\t";
+				}
+			}
+
+			if (tmsg->function->ibuffers[i].instruction == Instruction::LEA && tmsg->function->ibuffers[i].raw_asm.find(",[e") == std::string::npos && tmsg->function->ibuffers[i + 2].instruction == Instruction::MOV)
+			{
+
+				if (tmsg->wrapped_image_base != 0xFFFFFFFF || tmsg->image_base != 0xFFFFFFFF)
+				{
+					int virtual_address = 0;
+					int string_size = 0;
+					bool found_nested_ptr = false;
+
+					std::string string;
+					std::stringstream stream;
+
+					tmsg->instructions_used->push_back(i);
+
+
+					std::string string_addr = split_string(split_string(tmsg->function->ibuffers[i].raw_asm, "[")[1], "]")[0];
+					stream << std::hex << string_addr;
+					stream >> virtual_address;
+
+					stream.clear();
+
+					std::string str_size = split_string(tmsg->function->ibuffers[i + 2].raw_asm, ",")[1];
+
+
+					tmsg->instructions_used->push_back(i + 1);
+					if (str_size[0] != 'e')
+					{
+
+						if (str_size.find("DWORD PTR") != std::string::npos)
+						{
+
+							if (tmsg->wrapped_image_base != 0xFFFFFFFF)
+							{
+								virtual_address = virtual_address - tmsg->wrapped_image_base;
+
+								std::uintptr_t string_ptr = 0x00;
+								std::string _byte;
+								std::string text;
+								for (int ptr = virtual_address + 0x03; ptr != virtual_address - 0x01; ptr--)
+								{
+									_byte = tmsg->buffer[ptr];
+									text += string_to_hex(_byte);
+								}
+								std::istringstream ss(text);
+								ss >> std::hex >> string_ptr;
+								text.clear();
+
+								std::uintptr_t wrapper_str_start = string_ptr - tmsg->wrapped_image_base;
+
+								for (int ptr = virtual_address + 0x07; ptr != virtual_address + 0x03; ptr--)
+								{
+									_byte = tmsg->buffer[ptr];
+									text += string_to_hex(_byte);
+								}
+
+								std::istringstream dw_string(text);
+								dw_string >> std::hex >> string_size;
+
+								if (wrapper_str_start < tmsg->rdata_start || wrapper_str_start > tmsg->b_size || wrapper_str_start + string_size > tmsg->b_size)
+								{
+									continue;
+								}
+
+
+								for (int ptr = wrapper_str_start; ptr < wrapper_str_start + string_size; ptr++)
+								{
+									string += tmsg->buffer[ptr];
+								}
+								psuedo_code += std::format("{}string_{} := \"{}\"\n", duplicate_string(tab_string, tmsg->indent_level), string_count, string);
+								stack.push(std::format("string_{}", string_count));
+								string_count++;
+							}
+
+						}
+
+						else
+						{
+							if (tmsg->image_base != 0xFFFFFFFF)
+							{
+								tmsg->instructions_used->push_back(i + 2);
+								stream << std::hex << str_size;
+								stream >> string_size;
+								stream.clear();
+
+								virtual_address = virtual_address - tmsg->image_base;
+
+								for (int ptr = virtual_address; ptr < virtual_address + string_size; ptr++)
+								{
+									string += tmsg->buffer[ptr];
+								}
+								psuedo_code += std::format("{}string_{} := \"{}\"\n", duplicate_string(tab_string, tmsg->indent_level), string_count, string);
+								stack.push(std::format("string_{}", string_count));
+								string_count++;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	psuedo_code += "\n\t}";
+	tmsg->indent_level--;
 	return psuedo_code;
 }
 
@@ -302,8 +601,12 @@ std::vector<std::string> get_function_names(char* buffer, size_t buff_size)
 	std::string first_gofunc = "__x86.get_pc_thunk.ax";
 
 	// Where the gofunc label table starts
+
+	std::vector<std::string>::iterator new_pkg;
 	std::vector<unsigned char>::iterator start = std::search(_buffer.begin(), _buffer.end(), first_gofunc.begin(), first_gofunc.end());
 
+	bool found_new_pkg = false;
+	std::string previous_pkg;
 	std::string function_name;
 	for (;;)
 	{
@@ -325,19 +628,11 @@ std::vector<std::string> get_function_names(char* buffer, size_t buff_size)
 		++start;
 	}
 
-
-	/*function_names.erase(std::remove_if(function_names.begin(), function_names.end(),
-		[](const std::string& x)
-		{
-			return x.find("func") != std::string::npos;
-		}
-	), function_names.end());*/
-
 	return function_names;
 
 }
 
-std::vector<std::string> get_wrapped_strings_from_function(Function* function, char* buffer, std::size_t buffer_size, std::uintptr_t rdata_start)
+std::vector<std::string> get_wrapped_strings_from_function(Function* function, char* buffer, std::size_t buffer_size, std::uintptr_t rdata_start, std::uintptr_t wrapped_image_base)
 {
 	std::vector<std::string> strings;
 	for (size_t i = 0x04; i < function->ibuffers.size(); i++)
@@ -359,7 +654,7 @@ std::vector<std::string> get_wrapped_strings_from_function(Function* function, c
 			std::string str_size = split_string(function->ibuffers[i + 2].raw_asm, ",")[1];
 			if (str_size.find("DWORD PTR") != std::string::npos && str_size[0] != 'e')
 			{
-				virtual_address = virtual_address - 0x00400E00;
+				virtual_address = virtual_address - wrapped_image_base;
 				if (virtual_address < 0)
 				{
 					continue;
@@ -373,20 +668,18 @@ std::vector<std::string> get_wrapped_strings_from_function(Function* function, c
 				{
 					_byte = buffer[ptr];
 					text += string_to_hex(_byte);
-					//std::memset(reinterpret_cast<void*>(&string_ptr + (ptr + virtual_address)), buffer[ptr], sizeof(char));
 				}
 				//std::string string_ptr_addr = std::format("{}", string_to_hex(text));
 				std::istringstream ss(text);
 				ss >> std::hex >> string_ptr;
 				text.clear();
 
-				std::uintptr_t wrapper_str_start = string_ptr - 0x00400E00;
+				std::uintptr_t wrapper_str_start = string_ptr - wrapped_image_base;
 
 				for (int ptr = virtual_address + 0x07; ptr != virtual_address + 0x03; ptr--)
 				{
 					_byte = buffer[ptr];
 					text += string_to_hex(_byte);
-					//std::memset(reinterpret_cast<void*>(&string_ptr + (ptr + virtual_address)), buffer[ptr], sizeof(char));
 				}
 
 				std::istringstream dw_string(text);
@@ -412,7 +705,7 @@ std::vector<std::string> get_wrapped_strings_from_function(Function* function, c
 	
 }
 
-std::vector<std::string> get_strings_from_function(Function* function, char* buffer)
+std::vector<std::string> get_strings_from_function(Function* function, char* buffer, std::uintptr_t image_base)
 {
 	std::vector<std::string> strings;
 	for (size_t i = 0x04; i < function->ibuffers.size(); i++)
@@ -440,7 +733,7 @@ std::vector<std::string> get_strings_from_function(Function* function, char* buf
 			stream << std::hex << str_size;
 			stream >> string_size;
 
-			virtual_address = virtual_address - 0x00400C00;
+			virtual_address = virtual_address - image_base;
 
 			for (int ptr = virtual_address; ptr < virtual_address + string_size; ptr++)
 			{
@@ -481,10 +774,10 @@ std::vector<std::string> get_all_function_labels(char* buffer, size_t buff_size,
 		else if (*start == 0x00)
 		{
 			function_names.push_back(function_name);
-			if (function_name.find("type..eq") != std::string::npos)
-			{
-				function_names.insert(function_names.begin() + (function_names.size() - 1), "type_init_placeholder");
-			}
+			//if (function_name.find("type..eq") != std::string::npos) //&& std::find(banned_types.begin(), banned_types.end(), function_name) == banned_types.end())
+			//{
+			//	function_names.insert(function_names.begin() + (function_names.size() - 1), "type_init_placeholder");
+			//}
 			function_name.clear();
 			null_count++;
 		}
@@ -520,6 +813,39 @@ void label_all_functions(std::vector<Function>* functions, std::vector<std::stri
 		
 		func_it--;
 	}
+}
+
+std::vector<std::string> find_required_init_placeholders(std::vector<std::string>& names)
+{
+	std::vector<std::string> placeholders;
+	for (size_t i = 0; i < names.size(); i++)
+	{
+		if (names[i].find("type..eq") != std::string::npos)
+		{
+			if (names[i - 1].find("init") != std::string::npos)
+			{
+				placeholders.push_back(names[i]);
+			}
+		}
+	}
+	return placeholders;
+}
+
+void fix_function_labels(std::vector<std::string>* labels, std::vector<std::string>* names)
+{
+	std::vector<std::string> required_placeholders = find_required_init_placeholders(*names);
+	for (int i = 0; i < labels->size(); i++)
+	{
+		if ((*labels)[i].find("type..eq") != std::string::npos && 
+			std::find(required_placeholders.begin(), required_placeholders.end(), (*labels)[i]) != required_placeholders.end())
+		{
+			if ((*labels)[i - 1].find("init") == std::string::npos && (*labels)[i - 1].find("type..eq") == std::string::npos)
+			{
+				labels->insert(labels->begin() + (i + 1), "type_init_placeholder");
+			}
+		}
+	}
+
 }
 
 std::vector<std::string> get_all_user_defined_functions(const std::vector<std::string>& total_funcs)

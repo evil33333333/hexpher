@@ -150,7 +150,19 @@ struct Function
 	bool from_main_pkg = false;
 };
 
-
+struct TMessage 
+{
+	Function* function;
+	std::vector<Function>* all_functions;
+	std::uintptr_t jmp_addr = 0xFFFFFFFF;
+	char* buffer = nullptr;
+	size_t b_size = -1;
+	std::uintptr_t rdata_start = 0xFFFFFFFF;
+	std::uintptr_t image_base = 0xFFFFFFFF;
+	std::uintptr_t wrapped_image_base = 0xFFFFFFFF;
+	std::vector<uint32_t>* instructions_used = nullptr;
+	int indent_level = 1;
+};
 
 // Every 32 bit Go binary starts a function with these bytes
 /*
@@ -158,7 +170,7 @@ struct Function
 64 -> fs
 8B -> mov instruction
 0D -> ecx 
-14 00 00 00 -> 0x14
+140x00,0x00,0x00, -> 0x14
 
 IDA View:
 
@@ -167,38 +179,82 @@ IDA View:
 */
 
 inline unsigned char gofunc_bytes[] = {0x64, 0x8B, 0x0D, 0x14, 0x00, 0x00, 0x00};
-inline unsigned char gofunc_label_terminator[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+inline unsigned char gofunc_bytes_x64[] = { 0x49, 0x3B, 0x66, 0x10 };
+inline unsigned char gofunc_label_terminator[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
 inline unsigned char gofunc_label_start[] = { 0x74, 0x00, 0x72, 0x75, 0x6E, 0x74, 0x69, 0x6D, 0x65, 0x2E, 0x65, 0x74, 0x65, 0x78, 0x74, 0x00 };
-//inline std::array<std::string, 44> not_gofuncs = {
-//	"__x86.get_pc_thunk", "go.buildid", "interal/cpugetGOAMD64level", "internal/cpu.xgetbv", "internal/cpu.cpuid",
-//	"internal/cpu.isSet", "internal/cpu.indexByte", "runtime/internal/atomic.LoadAcq", "runtime/internal/atomic.LoadAcquintptr",
-//	"runtime/internal/atomic.Load8", "runtime/internal/atomic.Load","runtime/internal/atomic.Loadp", "runtime/internal/atomic.Cas",
-//	"runtime/internal/atomic.Casint64", "runtime/internal/atomic.Casuintptr", "runtime/internal/atomic.CasRel", "runtime/internal/atomic.Loaduintptr",
-//	"runtime/internal/atomic.Loaduint", "runtime/internal/atomic.Storeint32", "runtime/internal/atomic.Storeint64", "runtime/internal/atomic.Storeuintptr",
-//"runtime/internal/atomic.Xadduintptr",
-//"runtime/internal/atomic.Loadint32",
-//"runtime/internal/atomic.Loadint64",
-//"runtime/internal/atomic.Xaddint64",
-//"runtime/internal/atomic.Cas64",
-//"runtime/internal/atomic.Casp1",
-//"runtime/internal/atomic.Xadd",
-//"runtime/internal/atomic.Xadd64",
-//"runtime/internal/atomic.Xchg",
-//"runtime/internal/atomic.Xchguintptr",
-//"runtime/internal/atomic.Xchg64",
-//"runtime/internal/atomic.StorepNoWB",
-//"runtime/internal/atomic.Store",
-//"runtime/internal/atomic.StoreRel",
-//"runtime/internal/atomic.StoreReluintptr",
-//"runtime/internal/atomic.Load64",
-//"runtime/internal/atomic.Store64",
-//"runtime/internal/atomic.Or8",
-//"runtime/internal/atomic.And8",
-//"runtime/internal/atomic.Store8",
-//"runtime/internal/atomic.Or",
-//"runtime/internal/atomic.And",
-//"type..eq.runtime/internal/atomic.Uint64",
-//};
+inline std::array<std::string, 75> banned_types = { 
+	"type..eq.strings.Reader",
+	"type..eq.strings.singleStringReplacer",
+	"type..eq.encoding/json.MarshalerError",
+	"type..eq.encoding/json.UnsupportedValueError",
+	"type..eq.encoding/json.SyntaxError",
+	"type..eq.encoding/json.reflectWithString",
+	"type..eq.[2]interface {}",
+	"type..eq.struct { encoding/json.ptr interface {}; encoding/json.len int }",
+	"type..eq.context.valueCtx",
+	"type..eq.crypto/elliptic.CurveParams",
+	"type..eq.encoding/asn1.taggedEncoder",
+	"type..eq.encoding/asn1.fieldParameters",
+	"type..eq.encoding/asn1.tagAndLength",
+	"type..eq.[2]encoding/asn1.encoder",
+	"type..eq.crypto/ecdsa.PublicKey",
+	"type..eq.crypto/ecdsa.PrivateKey",
+	"type..eq.crypto/rc4.Cipher",
+	"type..eq.crypto/sha256.digest",
+	"type..eq.container/list.List",
+	"type..eq.container/list.Element",
+	"type..eq.vendor/golang.org/x/net/dns/dnsmessage.nestedError",
+	"type..eq.vendor/golang.org/x/net/dns/dnsmessage.ResourceHeader",
+	"type..eq.internal/singleflight.Result",
+	"type..eq.net.policyTableEntry",
+	"type..eq.net.AddrError",
+	"type..eq.net.UnixAddr",
+	"type..eq.net.OpError",
+	"type..eq.net.DNSError",
+	"type..eq.net.ParseError",
+	"type..eq.net.onlyValuesCtx",
+	"type..eq.net.nssCriterion",
+	"type..eq.net.dialResult·1",
+	"type..eq.net.result·3",
+	"type..eq.net/url.Error",
+	"type..eq.net/url.Userinfo",
+	"type..eq.net/url.URL",
+	"type..eq.crypto/x509.CertificateInvalidError",
+	"type..eq.crypto/x509.UnknownAuthorityError",
+	"type..eq.crypto/x509.HostnameError",
+	"type..eq.crypto/x509.rfc2821Mailbox",
+	"type..eq.crypto/tls.prefixNonceAEAD",
+	"type..eq.crypto/tls.xorNonceAEAD",
+	"type..eq.crypto/tls.RecordHeaderError",
+	"type..eq.crypto/tls.atLeastReader",
+	"type..eq.compress/flate.literalNode",
+	"type..eq.vendor/golang.org/x/net/idna.labelError",
+	"type..eq.vendor/golang.org/x/net/http2/hpack.HeaderField",
+	"type..eq.vendor/golang.org/x/net/http2/hpack.pairNameValue",
+	"type..eq.net/http/internal.chunkedReader",
+	"type..eq.vendor/golang.org/x/net/http/httpproxy.domainMatch",
+	"type..eq.vendor/golang.org/x/net/http/httpproxy.Config",
+	"type..eq.net/http.connectMethodKey",
+	"type..eq.net/http.httpError",
+	"type..eq.net/http.http2FrameHeader",
+	"type..eq.net/http.http2PriorityParam",
+	"type..eq.net/http.http2Setting",
+	"type..eq.net/http.http2StreamError",
+	"type..eq.net/http.http2connError",
+	"type..eq.net/http.http2PingFrame",
+	"type..eq.net/http.http2WindowUpdateFrame",
+	"type..eq.net/http.http2PriorityFrame",
+	"type..eq.net/http.http2RSTStreamFrame",
+	"type..eq.net/http.http2stickyErrWriter",
+	"type..eq.net/http.http2GoAwayError",
+	"type..eq.net/http.readTrackingBody",
+	"type..eq.struct { io.Reader; io.WriterTo }",
+	"type..eq.net/http.socksUsernamePassword",
+	"type..eq.github.com/mattn/go-colorable.hsv",
+};
+
+const std::string tab_string = "\t";
+
 inline std::map<std::string, Instruction> instructions_map
 {
 	{ "aaa", AAA },
@@ -319,15 +375,72 @@ inline std::map<std::string, Instruction> instructions_map
 
 
 
-std::string translate_function(Function* function, std::vector<Function>* all_functions, char* buffer, size_t b_size, std::uintptr_t rdata_start);
-std::vector<std::string> get_function_names(char* buffer, size_t buff_size);
-std::vector<Function> get_all_go_functions(char* buffer, size_t buff_size);
-std::vector<std::string> get_wrapped_strings_from_function(Function* function, char* buffer, std::size_t buffer_size, std::uintptr_t rdata_start);
-std::vector<std::string> get_strings_from_function(Function* function, char* buffer);
-std::vector<std::string> get_all_user_defined_functions(const std::vector<std::string>& total_funcs);
-std::vector<std::string> get_all_imports(const std::vector<std::string>& func_names);
-void define_main_pkg_funcs(std::vector<Function>* functions, std::vector<std::string>* names);
-void define_other_pkg_funcs(std::vector<Function>* functions, std::vector<std::string>* names);
-std::string find_function_name(std::vector<Function>* functions, std::uintptr_t x32_addr);
-std::vector<std::string> get_other_defined_functions(const std::vector<std::string>& total_funcs);
-std::vector<std::string> get_all_function_labels(char* buffer, size_t buff_size, std::string last_func_name);
+std::string translate_function(
+	TMessage* tmsg
+);
+
+std::string translate_block(
+	TMessage* tmsg
+);
+
+std::vector<std::string> get_function_names(
+	char* buffer,
+	size_t buff_size
+);
+
+std::vector<Function> get_all_go_functions(
+	char* buffer,
+	size_t buff_size
+);
+
+std::vector<std::string> get_wrapped_strings_from_function(
+	Function* function,
+	char* buffer,
+	std::size_t buffer_size,
+	std::uintptr_t rdata_start,
+	std::uintptr_t wrapped_image_base
+);
+
+std::vector<std::string> get_strings_from_function(
+	Function* function,
+	char* buffer,
+	std::uintptr_t image_base
+);
+
+std::vector<std::string> get_all_user_defined_functions(
+	const std::vector<std::string>& total_funcs
+);
+
+std::vector<std::string> get_all_imports(
+	const std::vector<std::string>& func_names
+);
+
+void define_main_pkg_funcs(
+	std::vector<Function>* functions,
+	std::vector<std::string>* names
+);
+
+void define_other_pkg_funcs(
+	std::vector<Function>* functions,
+	std::vector<std::string>* names
+);
+
+std::string find_function_name(
+	std::vector<Function>* functions,
+	std::uintptr_t x32_addr
+);
+
+std::vector<std::string> get_other_defined_functions(
+	const std::vector<std::string>& total_funcs
+);
+
+std::vector<std::string> get_all_function_labels(
+	char* buffer,
+	size_t buff_size,
+	std::string last_func_name
+);
+
+void fix_function_labels(
+	std::vector<std::string>* labels,
+	std::vector<std::string>* names
+);

@@ -43,6 +43,19 @@ std::uintptr_t find_next_function(std::uintptr_t prev_ret_addr, std::vector<unsi
 }
 
 
+std::string find_last_function(std::vector<std::string>* names)
+{
+	std::vector<std::string> reversed_names = *names;
+	std::reverse(reversed_names.begin(), reversed_names.end());
+	for (auto const& name : reversed_names)
+	{
+		if (name.starts_with("type..eq.") || name.starts_with("main."))
+		{
+			return name;
+		}
+	}
+}
+
 
 std::vector<std::string> split_string(std::string content, std::string delimiter)
 {
@@ -254,4 +267,14 @@ std::string string_to_hex(const std::string& input)
 		output.push_back(hex_digits[c & 15]);
 	}
 	return output;
+}
+
+std::string duplicate_string(std::string text, uint32_t times)
+{
+	std::string result;
+	for (int i = 0; i < times; i++)
+	{
+		result += text;
+	}
+	return result;
 }
