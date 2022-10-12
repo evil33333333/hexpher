@@ -8,33 +8,20 @@
 #include "ansi.h"
 #include "helper.h"
 #include "transmitter.h"
+#include "gui.hpp"
 
-
-class GUI {
-public:
-	const std::string cyan_plus = Colors[White] + "[" + Colors[Cyan] + "+" + Colors[White] + "]";
-	const std::string purple_plus = Colors[White] + "[" + Colors[Purple] + "+" + Colors[White] + "]";
-
-	void configure_console()
-	{
-		HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
-		DWORD current_conosle_mode{};
-		GetConsoleMode(handle, &current_conosle_mode);
-		current_conosle_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
-		SetConsoleMode(handle, current_conosle_mode);
-	}
-};
 
 int main(int argc, char** argv) 
 {
 	GUI gui;
-	std::uintptr_t image_base;
-	std::uintptr_t wrapped_image_base;
-
+	std::uintptr_t delta;
+	std::uintptr_t wrapped_delta;
+	bool arg_compress;
+	
 	gui.configure_console();
-	if (argc != 4)
+	if (argc != 5)
 	{
-		std::cout << gui.purple_plus << " usage: <hexpher> <exe_path> <img_base [hex]> <wrapped_img_base [hxd]>" << std::endl;
+		std::cout << gui.purple_plus << " usage: <hexpher> <exe_path> <delta [hex]> <wrapped_delta [hxd]> <arg_compress <dec>>" << std::endl;
 		return -1;
 	}
 
@@ -50,9 +37,11 @@ int main(int argc, char** argv)
 
 	std::istringstream i_base(argv[2]);
 	std::istringstream wi_base(argv[3]);
+	std::istringstream arg_comp(argv[4]);
 
-	i_base >> std::hex >> image_base;
-	wi_base >> std::hex >> wrapped_image_base;
+	i_base >> std::hex >> delta;
+	wi_base >> std::hex >> wrapped_delta;
+	arg_comp >> std::dec >> arg_compress;
 
 	
 	std::vector<std::string> names = get_function_names(fc.buffer, fc.size);
@@ -69,21 +58,15 @@ int main(int argc, char** argv)
 
 
 	std::cout << gui.cyan_plus << " Found " << all_function_labels.size() << " total function names in this Go binary!\n" << std::endl;
-	std::vector<std::string> user_funcs = get_all_user_defined_functions(names);
-	std::vector<std::string> other_funcs = get_other_defined_functions(names);
+	std::vector<std::string> main_funcs = get_main_defined_functions(names);
 
-	std::string user_def_text;
-	for (auto const& func : user_funcs)
+	std::string main_def_text;
+	for (auto const& func : main_funcs)
 	{
-		user_def_text += gui.cyan_plus;
-		user_def_text += " function: ";
-		user_def_text += Colors[Cyan];
-		user_def_text += func;
-		user_def_text += "()\n";
-		user_def_text += Colors[White];
+		main_def_text += std::format("{} {}{}{}{}{}", gui.cyan_plus, " function: ", Colors[Cyan], func, "()\n", Colors[White]);
 	}
-	std::cout << "[" << Colors[Cyan] << "User defined functions" << Colors[White] << "]\n" << user_def_text << Colors[White] << std::endl;
-	user_def_text.clear();
+	std::cout << "[" << Colors[Cyan] << "main pkg functions" << Colors[White] << "]\n" << main_def_text << Colors[White] << std::endl;
+	main_def_text.clear();
 
 	std::vector<std::string> imports = get_all_imports(names);
 
@@ -101,7 +84,7 @@ int main(int argc, char** argv)
 	std::vector<Function> funcs = get_all_go_functions(fc.buffer, fc.size);
 	label_all_functions(&funcs, &all_function_labels);
 	
-	if (image_base != 0xFFFFFFFF)
+	if (delta != OUT_OF_BOUNDS)
 	{
 		std::cout << "[" << Colors[Cyan] << "string content" << Colors[White] << "]";
 		std::string string_content_text;
@@ -109,26 +92,19 @@ int main(int argc, char** argv)
 		{
 			if (funcs[i].from_main_pkg)
 			{
-				std::vector<std::string> strings = get_strings_from_function(&funcs[i], fc.buffer, image_base);
+				std::vector<std::string> strings = get_strings_from_function(&funcs[i], fc.buffer, delta);
 
 				for (auto const& str : strings)
 				{
-					string_content_text += gui.cyan_plus;
-					string_content_text += " string: \"";
-					string_content_text += Colors[Cyan];
-					string_content_text += str;
-					string_content_text += Colors[White];
-					string_content_text += "\"\n";
-					string_content_text += Colors[White];
+					string_content_text += std::format("{} {}{}{}{}{}{}", gui.cyan_plus, " string: \"", Colors[Cyan], str, Colors[White], "\"\n", Colors[White]);
 				}
-
 			}
 		}
 		std::cout << std::endl << string_content_text << std::endl << std::endl;
 	}
 	
 
-	if (wrapped_image_base != 0xFFFFFFFF)
+	if (wrapped_delta != OUT_OF_BOUNDS)
 	{
 		std::cout << "[" << Colors[Cyan] << "wrapped string content" << Colors[White] << "]";
 		std::string ws_content_text;
@@ -136,19 +112,12 @@ int main(int argc, char** argv)
 		{
 			if (funcs[i].from_main_pkg)
 			{
-				std::vector<std::string> strings = get_wrapped_strings_from_function(&funcs[i], fc.buffer, fc.size, rdata_section->raw_address, wrapped_image_base);
+				std::vector<std::string> strings = get_wrapped_strings_from_function(&funcs[i], fc.buffer, fc.size, rdata_section->raw_address, wrapped_delta);
 
 				for (auto const& str : strings)
 				{
-					ws_content_text += gui.cyan_plus;
-					ws_content_text += " string: \"";
-					ws_content_text += Colors[Cyan];
-					ws_content_text += str;
-					ws_content_text += Colors[White];
-					ws_content_text += "\"\n";
-					ws_content_text += Colors[White];
+					ws_content_text += std::format("{} {}{}{}{}{}{}", gui.cyan_plus, "string: \"", Colors[Cyan], str, Colors[White], "\"\n", Colors[White]);
 				}
-
 			}
 		}
 		std::cout << std::endl << ws_content_text << std::endl << std::endl;
@@ -165,8 +134,9 @@ int main(int argc, char** argv)
 				.buffer = fc.buffer,
 				.b_size = fc.size,
 				.rdata_start = rdata_section->raw_address,
-				.image_base = image_base,
-				.wrapped_image_base = wrapped_image_base
+				.delta = delta,
+				.wrapped_delta = wrapped_delta,
+				.compress = arg_compress
 			};
 
 			std::string psuedo_code = translate_function(&tmsg);

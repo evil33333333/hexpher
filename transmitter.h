@@ -130,15 +130,16 @@ enum Instruction
 	XCHG,
 	XLAT,
 	XOR,
+	UNDEFINED
 
 };
 
 struct IBuffer
 {
 	std::string raw_asm;
-	Instruction instruction;
+	Instruction instruction = Instruction::UNDEFINED;
 	std::vector<std::string> raw_bytes;
-	std::uintptr_t address = 0xffffffffffffffff;
+	std::uintptr_t address = 0xffffffff;
 };
 
 
@@ -158,10 +159,11 @@ struct TMessage
 	char* buffer = nullptr;
 	size_t b_size = -1;
 	std::uintptr_t rdata_start = 0xFFFFFFFF;
-	std::uintptr_t image_base = 0xFFFFFFFF;
-	std::uintptr_t wrapped_image_base = 0xFFFFFFFF;
+	std::uintptr_t delta = 0xFFFFFFFF;
+	std::uintptr_t wrapped_delta = 0xFFFFFFFF;
 	std::vector<uint32_t>* instructions_used = nullptr;
 	int indent_level = 1;
+	bool compress = false;
 };
 
 // Every 32 bit Go binary starts a function with these bytes
@@ -179,79 +181,9 @@ IDA View:
 */
 
 inline unsigned char gofunc_bytes[] = {0x64, 0x8B, 0x0D, 0x14, 0x00, 0x00, 0x00};
-inline unsigned char gofunc_bytes_x64[] = { 0x49, 0x3B, 0x66, 0x10 };
 inline unsigned char gofunc_label_terminator[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
 inline unsigned char gofunc_label_start[] = { 0x74, 0x00, 0x72, 0x75, 0x6E, 0x74, 0x69, 0x6D, 0x65, 0x2E, 0x65, 0x74, 0x65, 0x78, 0x74, 0x00 };
-inline std::array<std::string, 75> banned_types = { 
-	"type..eq.strings.Reader",
-	"type..eq.strings.singleStringReplacer",
-	"type..eq.encoding/json.MarshalerError",
-	"type..eq.encoding/json.UnsupportedValueError",
-	"type..eq.encoding/json.SyntaxError",
-	"type..eq.encoding/json.reflectWithString",
-	"type..eq.[2]interface {}",
-	"type..eq.struct { encoding/json.ptr interface {}; encoding/json.len int }",
-	"type..eq.context.valueCtx",
-	"type..eq.crypto/elliptic.CurveParams",
-	"type..eq.encoding/asn1.taggedEncoder",
-	"type..eq.encoding/asn1.fieldParameters",
-	"type..eq.encoding/asn1.tagAndLength",
-	"type..eq.[2]encoding/asn1.encoder",
-	"type..eq.crypto/ecdsa.PublicKey",
-	"type..eq.crypto/ecdsa.PrivateKey",
-	"type..eq.crypto/rc4.Cipher",
-	"type..eq.crypto/sha256.digest",
-	"type..eq.container/list.List",
-	"type..eq.container/list.Element",
-	"type..eq.vendor/golang.org/x/net/dns/dnsmessage.nestedError",
-	"type..eq.vendor/golang.org/x/net/dns/dnsmessage.ResourceHeader",
-	"type..eq.internal/singleflight.Result",
-	"type..eq.net.policyTableEntry",
-	"type..eq.net.AddrError",
-	"type..eq.net.UnixAddr",
-	"type..eq.net.OpError",
-	"type..eq.net.DNSError",
-	"type..eq.net.ParseError",
-	"type..eq.net.onlyValuesCtx",
-	"type..eq.net.nssCriterion",
-	"type..eq.net.dialResult·1",
-	"type..eq.net.result·3",
-	"type..eq.net/url.Error",
-	"type..eq.net/url.Userinfo",
-	"type..eq.net/url.URL",
-	"type..eq.crypto/x509.CertificateInvalidError",
-	"type..eq.crypto/x509.UnknownAuthorityError",
-	"type..eq.crypto/x509.HostnameError",
-	"type..eq.crypto/x509.rfc2821Mailbox",
-	"type..eq.crypto/tls.prefixNonceAEAD",
-	"type..eq.crypto/tls.xorNonceAEAD",
-	"type..eq.crypto/tls.RecordHeaderError",
-	"type..eq.crypto/tls.atLeastReader",
-	"type..eq.compress/flate.literalNode",
-	"type..eq.vendor/golang.org/x/net/idna.labelError",
-	"type..eq.vendor/golang.org/x/net/http2/hpack.HeaderField",
-	"type..eq.vendor/golang.org/x/net/http2/hpack.pairNameValue",
-	"type..eq.net/http/internal.chunkedReader",
-	"type..eq.vendor/golang.org/x/net/http/httpproxy.domainMatch",
-	"type..eq.vendor/golang.org/x/net/http/httpproxy.Config",
-	"type..eq.net/http.connectMethodKey",
-	"type..eq.net/http.httpError",
-	"type..eq.net/http.http2FrameHeader",
-	"type..eq.net/http.http2PriorityParam",
-	"type..eq.net/http.http2Setting",
-	"type..eq.net/http.http2StreamError",
-	"type..eq.net/http.http2connError",
-	"type..eq.net/http.http2PingFrame",
-	"type..eq.net/http.http2WindowUpdateFrame",
-	"type..eq.net/http.http2PriorityFrame",
-	"type..eq.net/http.http2RSTStreamFrame",
-	"type..eq.net/http.http2stickyErrWriter",
-	"type..eq.net/http.http2GoAwayError",
-	"type..eq.net/http.readTrackingBody",
-	"type..eq.struct { io.Reader; io.WriterTo }",
-	"type..eq.net/http.socksUsernamePassword",
-	"type..eq.github.com/mattn/go-colorable.hsv",
-};
+
 
 const std::string tab_string = "\t";
 
@@ -398,16 +330,16 @@ std::vector<std::string> get_wrapped_strings_from_function(
 	char* buffer,
 	std::size_t buffer_size,
 	std::uintptr_t rdata_start,
-	std::uintptr_t wrapped_image_base
+	std::uintptr_t wrapped_delta
 );
 
 std::vector<std::string> get_strings_from_function(
 	Function* function,
 	char* buffer,
-	std::uintptr_t image_base
+	std::uintptr_t delta
 );
 
-std::vector<std::string> get_all_user_defined_functions(
+std::vector<std::string> get_main_defined_functions(
 	const std::vector<std::string>& total_funcs
 );
 
@@ -428,10 +360,6 @@ void define_other_pkg_funcs(
 std::string find_function_name(
 	std::vector<Function>* functions,
 	std::uintptr_t x32_addr
-);
-
-std::vector<std::string> get_other_defined_functions(
-	const std::vector<std::string>& total_funcs
 );
 
 std::vector<std::string> get_all_function_labels(

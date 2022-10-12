@@ -1,23 +1,12 @@
 #include "helper.h"
 #include "transmitter.h"
 
-
-
-size_t return_file_size(std::ifstream *file) 
+std::streampos return_file_size(std::ifstream *file) 
 {
 	file->seekg(0, std::ios::end);
-	size_t length = file->tellg();
+	std::streampos length = file->tellg();
 	file->seekg(0, std::ios::beg);
 	return length;
-}
-
-
-void populate_buffer(std::vector<unsigned char>* new_buffer, char* old_buffer, size_t old_buffer_size)
-{
-	for (uint64_t i = 0; i < old_buffer_size; i++)
-	{
-		new_buffer->push_back(old_buffer[i]);
-	}
 }
 
 std::uintptr_t find_next_function(std::uintptr_t prev_ret_addr, std::vector<unsigned char>* buffer)
@@ -54,6 +43,7 @@ std::string find_last_function(std::vector<std::string>* names)
 			return name;
 		}
 	}
+	return std::string{};
 }
 
 
@@ -76,101 +66,32 @@ std::vector<std::string> split_string(std::string content, std::string delimiter
 
 std::vector<std::string> get_raw_bytes(std::string& byte_string)
 {
-	for (;;)
+	while (string_contains(byte_string, "ffffff"))
 	{
-		if (byte_string.find("ffffff") != std::string::npos)
-		{
-			byte_string.replace(byte_string.find("ffffff"), 6, "");
-		}
-		else
-		{
-			break;
-		}
+		byte_string.replace(byte_string.find("ffffff"), 6, "");
 	}
 	std::vector<std::string> raw_bytes = split_string(byte_string, " ");
 	raw_bytes.erase(std::remove_if(raw_bytes.begin(), raw_bytes.end(),
 		[](const std::string& x)
 		{
-			return x.find("") != std::string::npos;
+			return x == "";
 		}
 	), raw_bytes.end());
 	return raw_bytes;
 
 }
 
-s_result search_for_byte_pattern(std::vector<std::pair<std::string, std::string>>* instructions, std::string byte_pattern)
+// replacement for value[0] != e, checks if value is a register or not
+bool is_register(std::string& value)
 {
-
-	s_result result;
-	int iter = 0;
-	int kb_iter = 0;
-	std::vector<std::string> key_bytes;
-	std::vector<std::string> bytes = split_string(byte_pattern, " ");
-	for (auto& instruction : *instructions)
-	{
-		for (;;)
-		{
-			if (instruction.first.find("ffffff") != std::string::npos)
-			{
-				instruction.first.replace(instruction.first.find("ffffff"), 6, "");
-			}
-			else
-			{
-				break;
-			}
-		}
-
-		key_bytes = split_string(instruction.first, " ");
-		
-
-		// if we are currently on a return, return the result [end of func]
-		if (instruction.second.find("ret") != std::string::npos)
-		{
-			return result;
-		}
-
-		for (auto const& kb : key_bytes)
-		{
-			if (iter == bytes.size() - 1)
-			{
-				result.found = true;
-				result.index_found = find_index<std::pair<std::string, std::string>>(instructions, instruction);
-				return result;
-			}
-
-			if (kb == "")
-			{
-				continue;
-			}
-
-			else if (bytes[iter] == "??" || bytes[iter] == kb)
-			{
-				iter++;
-			}
-
-			else if (bytes[iter] != kb)
-			{
-				iter = 0;
-			}
-		}
-	}
-	return result;
+	return value[0] == 0x65;
 }
 
 
-template <typename T> uint32_t find_index(std::vector<T>* vec, T item)
+bool string_contains(std::string& haystack, const std::string& needle)
 {
-	auto it = std::find(vec->begin(), vec->end(), item);
-	if (it == vec->end())
-	{
-		return -1;
-	}
-	else
-	{
-		return it - vec->begin();
-	}
+	return haystack.find(needle) != std::string::npos;
 }
-
 
 f_content get_file_content(const std::string& filename)
 {
@@ -272,9 +193,10 @@ std::string string_to_hex(const std::string& input)
 std::string duplicate_string(std::string text, uint32_t times)
 {
 	std::string result;
-	for (int i = 0; i < times; i++)
+	for (uint32_t i = 0; i < times; i++)
 	{
 		result += text;
 	}
 	return result;
 }
+
