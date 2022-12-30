@@ -1,7 +1,7 @@
 #include "helper.h"
 #include "transmitter.h"
 
-std::streampos return_file_size(std::ifstream *file) 
+std::streampos return_file_size(std::ifstream *file)
 {
 	file->seekg(0, std::ios::end);
 	std::streampos length = file->tellg();
@@ -38,7 +38,7 @@ std::string find_last_function(std::vector<std::string>* names)
 	std::reverse(reversed_names.begin(), reversed_names.end());
 	for (auto const& name : reversed_names)
 	{
-		if (name.starts_with("type..eq.") || name.starts_with("main."))
+		if (name.rfind("type..eq.", 0) != std::string::npos || name.rfind("main.", 0) != std::string::npos)
 		{
 			return name;
 		}
@@ -73,9 +73,9 @@ std::vector<std::string> get_raw_bytes(std::string& byte_string)
 	std::vector<std::string> raw_bytes = split_string(byte_string, " ");
 	raw_bytes.erase(std::remove_if(raw_bytes.begin(), raw_bytes.end(),
 		[](const std::string& x)
-		{
-			return x == "";
-		}
+	{
+		return x == "";
+	}
 	), raw_bytes.end());
 	return raw_bytes;
 
@@ -96,7 +96,7 @@ bool string_contains(std::string& haystack, const std::string& needle)
 f_content get_file_content(const std::string& filename)
 {
 	f_content fc;
-	std::memset((void*)&fc, 0x00, sizeof(f_content)); 
+	std::memset((void*)&fc, 0x00, sizeof(f_content));
 
 	FILE* file = fopen(filename.c_str(), "rb");
 	if (!file)
@@ -136,7 +136,7 @@ void hexdump(FILE* file, int position, unsigned char* buffer)
 
 PIMAGE_NT_HEADERS64 get_pimage_nt_headers(unsigned char* buffer, char* filename)
 {
-	
+
 	FILE* file = fopen(filename, "rb");
 	hexdump(file, 0, buffer);
 
@@ -145,10 +145,10 @@ PIMAGE_NT_HEADERS64 get_pimage_nt_headers(unsigned char* buffer, char* filename)
 	hexdump(file, dhead->e_lfanew, buffer);
 
 	fclose(file);
-	
+
 	PIMAGE_NT_HEADERS64 nt_headers = (PIMAGE_NT_HEADERS64)buffer;
 	return nt_headers;
-	
+
 }
 
 std::vector<pe_section> find_pe_sections(char* filename)
@@ -169,10 +169,10 @@ std::vector<pe_section> find_pe_sections(char* filename)
 			pimage_sh->SizeOfRawData,
 		};
 		sections.push_back(pe_section);
-		
+
 		pimage_sh++;
 	}
-	
+
 	return sections;
 }
 

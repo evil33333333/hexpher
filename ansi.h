@@ -2,7 +2,8 @@
 #include <map>
 #include <string>
 
-enum ColorSheet {
+enum ColorSheet
+{
 	Color_Off,
 	Black,
 	Red,

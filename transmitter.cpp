@@ -9,12 +9,16 @@ std::string translate_function(TMessage* tmsg)
 	uint32_t boolean_count = 0x00;
 	uint32_t voidptr_count = 0x00;
 
+	std::string psuedo_code;
 	std::queue<std::string> stack;
 	std::vector<uint32_t> instructions_used;
 	std::map<std::string, std::uintptr_t> integer_variables;
 
 	tmsg->instructions_used = &instructions_used;
-	std::string psuedo_code = std::format("func {}()\n", tmsg->function->function_name);
+
+	auto fmt = boost::format("func %1%()\n") % tmsg->function->function_name;
+	psuedo_code += fmt.str();
+
 	psuedo_code += "{\n";
 
 	for (size_t i = start_point; i < tmsg->function->ibuffers.size(); i++)
@@ -35,15 +39,18 @@ std::string translate_function(TMessage* tmsg)
 				if (tmsg->function->ibuffers[i + 1].raw_asm.find("mov e") != std::string::npos && tmsg->function->ibuffers[i - 2].instruction == Instruction::LEA)
 				{
 					instructions_used.push_back(i + 1);
-					psuedo_code += std::format("{}data, err := {}(", duplicate_string(tab_string, tmsg->indent_level), function_name);
+					auto fmt = boost::format("%1%data, err := %2%(") % duplicate_string(tab_string, tmsg->indent_level) % function_name;
+					psuedo_code += fmt.str();
 				}
 				else
 				{
-					psuedo_code += std::format("{}data := {}(", duplicate_string(tab_string, tmsg->indent_level), function_name);
+
+					auto fmt = boost::format("%1%data := %2%(") % duplicate_string(tab_string, tmsg->indent_level) % function_name;
+					psuedo_code += fmt.str();
 				}
 				while (!stack.empty())
 				{
-					psuedo_code += stack.size() == 1 ? std::format("{}", stack.front()) : std::format("{}, ", stack.front());
+					psuedo_code += stack.size() == 1 ? stack.front() : std::string{stack.front() + ", "};
 					stack.pop();
 				}
 				psuedo_code += ")\n\n";
@@ -60,16 +67,20 @@ std::string translate_function(TMessage* tmsg)
 				stream << std::hex << byte_string;
 				stream >> value;
 
+				const char* boolean_value = value == 0x01 ? "true" : "false";
 				if (!tmsg->compress)
 				{
-					psuedo_code += std::format("{}var boolean_{} bool = {}\n", duplicate_string(tab_string, tmsg->indent_level), boolean_count, value == 1 ? "true" : "false");
-					stack.push(std::format("boolean_{}", boolean_count));
+					auto fmt = boost::format("%1%boolean_%2% := \"%3%\"\n") % duplicate_string(tab_string, tmsg->indent_level) % boolean_count % boolean_value;
+					psuedo_code += fmt.str();
+
+					fmt = boost::format("boolean_%1%") % boolean_count;
+					stack.push(fmt.str());
 				}
 				else
 				{
-					stack.push(value == 1 ? "true" : "false");
+					stack.push(boolean_value);
 				}
-				
+
 				boolean_count++;
 			}
 
@@ -85,7 +96,8 @@ std::string translate_function(TMessage* tmsg)
 				{
 					if (!tmsg->compress)
 					{
-						psuedo_code += std::format("{}var integer_{} int\n", duplicate_string(tab_string, tmsg->indent_level), int_count);
+						auto fmt = boost::format("%1%var integer_%2% int\n") % duplicate_string(tab_string, tmsg->indent_level) % int_count;
+						psuedo_code += fmt.str();
 						std::string int_addr = split_string(split_string(tmsg->function->ibuffers[i].raw_asm, "[")[1], "]")[0];
 
 						if (is_register(int_addr))
@@ -96,8 +108,10 @@ std::string translate_function(TMessage* tmsg)
 						stream << std::hex << int_addr;
 						stream >> address;
 
-						integer_variables[std::format("integer_{}", int_count)] = address;
-						stack.push(std::format("integer_{}", int_count));
+						std::string integer_name = std::string{ "integer_" + std::to_string(int_count) };
+
+						integer_variables[integer_name] = address;
+						stack.push(integer_name);
 					}
 				}
 				else
@@ -106,14 +120,16 @@ std::string translate_function(TMessage* tmsg)
 					stream >> value;
 					if (!tmsg->compress)
 					{
-						psuedo_code += std::format("{}integer_{} := {}\n", duplicate_string(tab_string, tmsg->indent_level), int_count, value);
-						stack.push(std::format("integer_{}", int_count));
+
+						auto fmt = boost::format("%1%integer_%2% := %3%\n") % duplicate_string(tab_string, tmsg->indent_level) % int_count % value;
+						psuedo_code += fmt.str();
+						stack.push(std::string{"integer_" + std::to_string(int_count)});
 					}
 					else
 					{
 						stack.push(std::to_string(value));
 					}
-					
+
 					stream.clear();
 				}
 				int_count++;
@@ -150,8 +166,10 @@ std::string translate_function(TMessage* tmsg)
 					stream << std::hex << jmp_addr_str;
 					stream >> jmp_addr;
 
-					
-					psuedo_code += std::format("{}if data {}= {} ", duplicate_string(tab_string, tmsg->indent_level), Instruction::JNE == tmsg->function->ibuffers[i + 1].instruction ? "!" : "=", value);
+					const char* equality_operator = Instruction::JNE == tmsg->function->ibuffers[i + 1].instruction ? "!" : "=";
+
+					auto fmt = boost::format("%1%if data %2%= %3% ") % duplicate_string(tab_string, tmsg->indent_level) % equality_operator % value;
+					psuedo_code += fmt.str();
 					psuedo_code += "{\n";
 
 					tmsg->indent_level++;
@@ -187,20 +205,26 @@ std::string translate_function(TMessage* tmsg)
 
 						stream >> jmp_addr;
 
+						const char* equality_operator = Instruction::JNE == tmsg->function->ibuffers[i + 1].instruction ? "!" : "=";
+
+						
 						if (!first_if_present)
 						{
-							psuedo_code += std::format("{}if data {}= {} ", duplicate_string(tab_string, tmsg->indent_level), Instruction::JNE == tmsg->function->ibuffers[i + 1].instruction ? "!" : "=", value);
+							auto fmt = boost::format("%1%if data %2%= %3% ") % duplicate_string(tab_string, tmsg->indent_level) % equality_operator % value;
+							psuedo_code += fmt.str();
 							psuedo_code += "{\n";
 							first_if_present = true;
 						}
 						else if (tmsg->function->ibuffers[i].instruction == Instruction::ADC && tmsg->function->ibuffers[i + 1].instruction == Instruction::JE || tmsg->function->ibuffers[i + 1].instruction == Instruction::JNE)
 						{
-							psuedo_code += std::format(" else if data {}= {} ",  Instruction::JNE == tmsg->function->ibuffers[i + 1].instruction ? "!" : "=", value);
+
+							auto fmt = boost::format(" else if data %1%= %2% ") % equality_operator % value;
+							psuedo_code += fmt.str();
 							psuedo_code += "{\n";
 
 						}
 
-						
+
 						tmsg->indent_level++;
 						tmsg->jmp_addr = jmp_addr;
 						psuedo_code += translate_block(tmsg);
@@ -211,13 +235,13 @@ std::string translate_function(TMessage* tmsg)
 						}
 						else
 						{
-							psuedo_code += " else\n"+ duplicate_string(tab_string, tmsg->indent_level) + "{\n" + duplicate_string(tab_string, tmsg->indent_level);
+							psuedo_code += " else\n" + duplicate_string(tab_string, tmsg->indent_level) + "{\n" + duplicate_string(tab_string, tmsg->indent_level);
 							break;
 						}
 
 					}
 				}
-				
+
 			}
 
 			if (tmsg->function->ibuffers[i].instruction == Instruction::LEA && tmsg->function->ibuffers[i].raw_asm.find(",[e") == std::string::npos && tmsg->function->ibuffers[i + 2].instruction == Instruction::MOV)
@@ -289,17 +313,21 @@ std::string translate_function(TMessage* tmsg)
 
 								if (!tmsg->compress)
 								{
-									psuedo_code += std::format("{}string_{} := \"{}\"\n", duplicate_string(tab_string, tmsg->indent_level), string_count, string);
-									stack.push(std::format("string_{}", string_count));
+									auto fmt = boost::format("%1%string_%2% := \"%3%\"\n") % duplicate_string(tab_string, tmsg->indent_level) % string_count % string;
+									psuedo_code += fmt.str();
+
+									fmt = boost::format("string_%1%") % string_count;
+									stack.push(fmt.str());
 								}
 								else
 								{
-									stack.push(std::format("\"{}\"", string));
+									auto fmt = boost::format("\"%1%\"") % string;
+									stack.push(fmt.str());
 								}
-								
+
 								string_count++;
 							}
-							
+
 						}
 
 						else
@@ -319,12 +347,16 @@ std::string translate_function(TMessage* tmsg)
 								}
 								if (!tmsg->compress)
 								{
-									psuedo_code += std::format("{}string_{} := \"{}\"\n", duplicate_string(tab_string, tmsg->indent_level), string_count, string);
-									stack.push(std::format("string_{}", string_count));
+									auto fmt = boost::format("%1%string_%2% := \"%3%\"\n") % duplicate_string(tab_string, tmsg->indent_level) % string_count % string;
+									psuedo_code += fmt.str();
+
+									fmt = boost::format("string_%1%") % string_count;
+									stack.push(fmt.str());
 								}
 								else
 								{
-									stack.push(std::format("\"{}\"", string));
+									auto fmt = boost::format("\"%1%\"") % string;
+									stack.push(fmt.str());
 								}
 								string_count++;
 							}
@@ -332,6 +364,7 @@ std::string translate_function(TMessage* tmsg)
 					}
 				}
 			}
+
 			if (tmsg->function->ibuffers[i].instruction == Instruction::LEA && contains_element<unsigned int>(tmsg->instructions_used, i))
 			{
 				std::string addr;
@@ -342,25 +375,91 @@ std::string translate_function(TMessage* tmsg)
 					addr = split_string(split_string(tmsg->function->ibuffers[i].raw_asm, "[")[1], "]")[0];
 					if (!tmsg->compress)
 					{
-						psuedo_code += std::format("{}var voidptr_{} uintptr = {}\n", duplicate_string(tab_string, tmsg->indent_level), voidptr_count, addr);
+						auto fmt = boost::format("%1%var voidptr_%2% uintptr = %3%\n") % duplicate_string(tab_string, tmsg->indent_level) % voidptr_count % addr;
+						psuedo_code += fmt.str();
 					}
 				}
 				else
 				{
 					if (!tmsg->compress)
 					{
-						psuedo_code += std::format("{}var voidptr_{} uintptr\n", duplicate_string(tab_string, tmsg->indent_level), voidptr_count);
+						auto fmt = boost::format("%1%var voidptr_%2% uintptr\n") % duplicate_string(tab_string, tmsg->indent_level) % voidptr_count;
+						psuedo_code += fmt.str();
 					}
 				}
 				if (!tmsg->compress)
 				{
-					stack.push(std::format("voidptr_{}", voidptr_count));
+					stack.push(std::string{ "voidptr_" + std::to_string(voidptr_count) });
+					//stack.push(std::format("voidptr_{}", voidptr_count));
 				}
 				else
 				{
 					stack.push(addr);
 				}
 				voidptr_count++;
+			}
+
+
+			// Addition and Subtraction in Go are both done by the ADD/ADC instruction.
+			// add dword ptr [eax], 0FFFFF830h == data := data + -2000
+			if (tmsg->function->ibuffers[i].instruction == Instruction::ADC || tmsg->function->ibuffers[i].instruction == Instruction::ADD)
+			{
+				// If we are adding a constant
+				if (tmsg->function->ibuffers[i].raw_asm.find("],") != std::string::npos)
+				{
+					// this is for dword ptr (std::uint32_t*)
+					std::string string_value = split_string(tmsg->function->ibuffers[i].raw_asm, "],")[1];
+					std::istringstream stream(string_value);
+
+					std::uint32_t value;
+
+					
+
+					stream >> std::hex >> value;
+
+					// if the value is greater than the signed int max capacity then we are doing subtraction, otherwise addition
+					if (value > INT_MAX)
+					{
+						auto fmt = boost::format("%1%data := data - %2%\n") % duplicate_string(tab_string, tmsg->indent_level) % -(int)value;
+						psuedo_code += fmt.str();
+					}
+					else
+					{
+						auto fmt = boost::format("%1%data := data + %2%\n") % duplicate_string(tab_string, tmsg->indent_level) % value;
+						psuedo_code += fmt.str();
+					}
+					
+				}
+			}
+
+			// Multiplication
+			if (tmsg->function->ibuffers[i].instruction == Instruction::IMUL)
+			{
+				// this is for dword ptr (std::uint32_t*)
+				std::string string_value = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
+				std::istringstream stream(string_value);
+
+				std::uint32_t value;
+
+				stream >> std::hex >> value;
+
+				auto fmt = boost::format("%1%data := data * %2%\n") % duplicate_string(tab_string, tmsg->indent_level) % value;
+				psuedo_code += fmt.str();
+			}
+
+			// Division
+			if (tmsg->function->ibuffers[i].instruction == Instruction::IDIV)
+			{
+				// this is for dword ptr (std::uint32_t*)
+				std::string string_value = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
+				std::istringstream stream(string_value);
+
+				std::uint32_t value;
+
+				stream >> std::hex >> value;
+
+				auto fmt = boost::format("%1%data := data / %2%\n") % duplicate_string(tab_string, tmsg->indent_level) % value;
+				psuedo_code += fmt.str();
 			}
 		}
 	}
@@ -412,15 +511,18 @@ std::string translate_block(TMessage* tmsg)
 				if (tmsg->function->ibuffers[i + 1].raw_asm.find("mov e") != std::string::npos && tmsg->function->ibuffers[i - 2].instruction == Instruction::LEA)
 				{
 					tmsg->instructions_used->push_back(i + 1);
-					psuedo_code += std::format("{}data, err := {}(", duplicate_string(tab_string, tmsg->indent_level), function_name);
+
+					auto fmt = boost::format("%1%data, err := %2%(") % duplicate_string(tab_string, tmsg->indent_level) % function_name;
+					psuedo_code += fmt.str();
 				}
 				else
 				{
-					psuedo_code += std::format("{}data := {}(", duplicate_string(tab_string, tmsg->indent_level), function_name);
+					auto fmt = boost::format("%1%data := %2%(") % duplicate_string(tab_string, tmsg->indent_level) % function_name;
+					psuedo_code += fmt.str();
 				}
 				while (!stack.empty())
 				{
-					psuedo_code += stack.size() == 1 ? std::format("{}", stack.front()) : std::format("{}, ", stack.front());
+					psuedo_code += stack.size() == 1 ? stack.front() : std::string{stack.front() + ", "};
 					stack.pop();
 				}
 				psuedo_code += ")\n\n\t";
@@ -437,9 +539,14 @@ std::string translate_block(TMessage* tmsg)
 				stream << std::hex << byte_string;
 				stream >> value;
 
+				const char* boolean_value = value == 0x01 ? "true" : "false";
 
-				psuedo_code += std::format("{}var boolean_{} bool = {}\n", duplicate_string(tab_string, tmsg->indent_level), boolean_count, value == 1 ? "true" : "false");
-				stack.push(std::format("boolean_{}", boolean_count));
+				auto fmt = boost::format("%1%boolean_%2% := \"%3%\"\n") % duplicate_string(tab_string, tmsg->indent_level) % boolean_count % boolean_value;
+				psuedo_code += fmt.str();
+
+				fmt = boost::format("boolean_%1%") % boolean_count;
+				stack.push(fmt.str());
+
 				boolean_count++;
 			}
 
@@ -455,9 +562,10 @@ std::string translate_block(TMessage* tmsg)
 				{
 					if (!tmsg->compress)
 					{
-						psuedo_code += std::format("{}var integer_{} int\n", duplicate_string(tab_string, tmsg->indent_level), int_count);
-						std::string int_addr = split_string(split_string(tmsg->function->ibuffers[i].raw_asm, "[")[1], "]")[0];
+						auto fmt = boost::format("%1%var integer_%2% int\n") % duplicate_string(tab_string, tmsg->indent_level) % int_count;
+						psuedo_code += fmt.str();
 
+						std::string int_addr = split_string(split_string(tmsg->function->ibuffers[i].raw_asm, "[")[1], "]")[0];
 						if (is_register(int_addr))
 						{
 							continue;
@@ -466,8 +574,12 @@ std::string translate_block(TMessage* tmsg)
 						stream << std::hex << int_addr;
 						stream >> address;
 
-						integer_variables[std::format("integer_{}", int_count)] = address;
-						stack.push(std::format("integer_{}", int_count));
+						fmt = boost::format("integer_%1%") % int_count;
+						stack.push(fmt.str());
+
+
+						integer_variables[fmt.str()] = address;
+						stack.push(fmt.str());
 					}
 				}
 				else
@@ -476,8 +588,12 @@ std::string translate_block(TMessage* tmsg)
 					stream >> value;
 					if (!tmsg->compress)
 					{
-						psuedo_code += std::format("{}integer_{} := {}\n", duplicate_string(tab_string, tmsg->indent_level), int_count, value);
-						stack.push(std::format("integer_{}", int_count));
+
+						auto fmt = boost::format("%1%integer_%2% := \"%3%\"\n") % duplicate_string(tab_string, tmsg->indent_level) % int_count % value;
+						psuedo_code += fmt.str();
+
+						fmt = boost::format("integer_%1%") % int_count;
+						stack.push(fmt.str());
 					}
 					else
 					{
@@ -519,12 +635,14 @@ std::string translate_block(TMessage* tmsg)
 					stream << std::hex << jmp_addr_str;
 					stream >> jmp_addr;
 
+					const char* equality_operator = Instruction::JNE == tmsg->function->ibuffers[i + 1].instruction ? "!" : "=";
 
-					psuedo_code += std::format("{}if data {}= {} ", duplicate_string(tab_string, tmsg->indent_level), Instruction::JNE == tmsg->function->ibuffers[i + 1].instruction ? "!" : "=", value);
+					auto fmt = boost::format("%1%if data %2%= %3% ") % duplicate_string(tab_string, tmsg->indent_level) % equality_operator % value;
+					psuedo_code += fmt.str();
 					psuedo_code += "{\n";
 
 					tmsg->indent_level++;
-					
+
 					psuedo_code += translate_block(tmsg);
 					psuedo_code += " else {\n\t";
 				}
@@ -598,12 +716,16 @@ std::string translate_block(TMessage* tmsg)
 
 								if (!tmsg->compress)
 								{
-									psuedo_code += std::format("{}string_{} := \"{}\"\n", duplicate_string(tab_string, tmsg->indent_level), string_count, string);
-									stack.push(std::format("string_{}", string_count));
+									auto fmt = boost::format("%1%string_%2% := \"%3%\"\n") % duplicate_string(tab_string, tmsg->indent_level) % string_count % string;
+									psuedo_code += fmt.str();
+
+									fmt = boost::format("string_%1%") % string_count;
+									stack.push(fmt.str());
 								}
 								else
 								{
-									stack.push(std::format("\"{}\"", string));
+									auto fmt = boost::format("\"%1%\"") % string;
+									stack.push(fmt.str());
 								}
 
 								string_count++;
@@ -628,18 +750,84 @@ std::string translate_block(TMessage* tmsg)
 								}
 								if (!tmsg->compress)
 								{
-									psuedo_code += std::format("{}string_{} := \"{}\"\n", duplicate_string(tab_string, tmsg->indent_level), string_count, string);
-									stack.push(std::format("string_{}", string_count));
+									auto fmt = boost::format("%1%string_%2% := \"%3%\"\n") % duplicate_string(tab_string, tmsg->indent_level) % string_count % string;
+									psuedo_code += fmt.str();
+
+									fmt = boost::format("string_%1%") % string_count;
+									stack.push(fmt.str());
 								}
 								else
 								{
-									stack.push(std::format("\"{}\"", string));
+									auto fmt = boost::format("\"%1%\"") % string;
+									stack.push(fmt.str());
 								}
 								string_count++;
 							}
 						}
 					}
 				}
+			}
+
+			// Addition and Subtraction in Go are both done by the ADD/ADC instruction.
+			// add dword ptr [eax], 0FFFFF830h == data := data + -2000
+			if (tmsg->function->ibuffers[i].instruction == Instruction::ADC || tmsg->function->ibuffers[i].instruction == Instruction::ADD)
+			{
+				// If we are adding a constant
+				if (tmsg->function->ibuffers[i].raw_asm.find("],") != std::string::npos)
+				{
+					// this is for dword ptr (std::uint32_t*)
+					std::string string_value = split_string(tmsg->function->ibuffers[i].raw_asm, "],")[1];
+					std::istringstream stream(string_value);
+
+					std::uint32_t value;
+
+
+
+					stream >> std::hex >> value;
+
+					// if the value is greater than the signed int max capacity then we are doing subtraction, otherwise addition
+					if (value > INT_MAX)
+					{
+						auto fmt = boost::format("%1%data := data - %2%\n") % duplicate_string(tab_string, tmsg->indent_level) % -(int)value;
+						psuedo_code += fmt.str();
+					}
+					else
+					{
+						auto fmt = boost::format("%1%data := data + %2%\n") % duplicate_string(tab_string, tmsg->indent_level) % value;
+						psuedo_code += fmt.str();
+					}
+
+				}
+			}
+
+			// Multiplication
+			if (tmsg->function->ibuffers[i].instruction == Instruction::IMUL)
+			{
+				// this is for dword ptr (std::uint32_t*)
+				std::string string_value = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
+				std::istringstream stream(string_value);
+
+				std::uint32_t value;
+
+				stream >> std::hex >> value;
+
+				auto fmt = boost::format("%1%data := data * %2%\n") % duplicate_string(tab_string, tmsg->indent_level) % value;
+				psuedo_code += fmt.str();
+			}
+
+			// Division
+			if (tmsg->function->ibuffers[i].instruction == Instruction::IDIV)
+			{
+				// this is for dword ptr (std::uint32_t*)
+				std::string string_value = split_string(tmsg->function->ibuffers[i].raw_asm, ",")[1];
+				std::istringstream stream(string_value);
+
+				std::uint32_t value;
+
+				stream >> std::hex >> value;
+
+				auto fmt = boost::format("%1%data := data / %2%\n") % duplicate_string(tab_string, tmsg->indent_level) % value;
+				psuedo_code += fmt.str();
 			}
 		}
 	}
@@ -657,7 +845,8 @@ std::string find_function_name(std::vector<Function>* functions, std::uintptr_t 
 			return func.function_name;
 		}
 	}
-	return std::format("gofunc_{}", x32_addr);
+	auto fmt = boost::format("gofunc_%1%") % std::to_string(x32_addr);
+	return fmt.str();
 }
 
 std::vector<std::string> get_function_names(char* buffer, size_t buff_size)
@@ -762,11 +951,11 @@ std::vector<std::string> get_wrapped_strings_from_function(Function* function, c
 				strings.push_back(string);
 			}
 		}
-		
+
 	}
 
 	return strings;
-	
+
 }
 
 std::vector<std::string> get_strings_from_function(Function* function, char* buffer, std::uintptr_t delta)
@@ -803,7 +992,7 @@ std::vector<std::string> get_strings_from_function(Function* function, char* buf
 			{
 				string += buffer[ptr];
 			}
-			strings.push_back(string);		
+			strings.push_back(string);
 		}
 
 	}
@@ -861,7 +1050,7 @@ void label_all_functions(std::vector<Function>* functions, std::vector<std::stri
 		{
 			(*functions)[func_it].from_main_pkg = true;
 		}
-		
+
 		func_it--;
 	}
 }
@@ -887,7 +1076,7 @@ void fix_function_labels(std::vector<std::string>* labels, std::vector<std::stri
 	std::vector<std::string> required_placeholders = find_required_init_placeholders(*names);
 	for (size_t i = 0; i < labels->size(); i++)
 	{
-		if ((*labels)[i].find("type..eq") != std::string::npos && 
+		if ((*labels)[i].find("type..eq") != std::string::npos &&
 			std::find(required_placeholders.begin(), required_placeholders.end(), (*labels)[i]) != required_placeholders.end())
 		{
 			if ((*labels)[i - 1].find("init") == std::string::npos && (*labels)[i - 1].find("type..eq") == std::string::npos)
@@ -915,7 +1104,7 @@ std::vector<std::string> get_main_defined_functions(const std::vector<std::strin
 void define_main_pkg_funcs(std::vector<Function>* functions, std::vector<std::string>* names)
 {
 	uint32_t func_it = functions->size() - 1;
-	std::vector<std::string> r_names  = *names;
+	std::vector<std::string> r_names = *names;
 	std::reverse(r_names.begin(), r_names.end());
 
 	for (auto const& name : r_names)
@@ -976,35 +1165,45 @@ std::vector<std::string> get_all_imports(const std::vector<std::string>& func_na
 
 Instruction get_instruction_used(std::string& raw_asm)
 {
+	Instruction instruction;
 	std::string instruction_string = split_string(raw_asm, " ")[0];
-	return instructions_map[instruction_string];
+	if (instructions_map.find(instruction_string) != instructions_map.end())
+	{
+		instruction = instructions_map.at(instruction_string);
+	}
+	else
+	{
+		instruction = Instruction::UNDEFINED;
+	}
+	return instruction;
 }
 
-std::vector<Function> get_all_go_functions(char* buffer, size_t buff_size)
+std::vector<Function> get_all_go_functions(char* binary_buffer, size_t binary_size)
 {
 	std::uintptr_t ret_addr = 0;
 	std::uintptr_t buffer_addr = 0;
 	std::vector<Function> functions;
 	std::vector<unsigned char> _buffer;
-	std::for_each(buffer, buffer + buff_size, [&](char& c) { _buffer.push_back(c); });
-	
+	std::for_each(binary_buffer, binary_buffer + binary_size, [&](char& c) { _buffer.push_back(c); });
 
+	auto function_start = std::chrono::high_resolution_clock::now();
 	std::vector<unsigned char>::iterator iter = _buffer.begin();
 	do
-	{	
+	{
+		auto start = std::chrono::high_resolution_clock::now();
 		buffer_addr = find_next_function(ret_addr, &_buffer);
 
 		char instructions[0xFF];
 		char disassembled[0xFF];
 		std::vector<IBuffer> ibuffers;
 		std::vector<std::pair<std::string, std::string>> code;
-		for (std::uintptr_t i = buffer_addr, count = 0; i < buff_size; i += count)
+		for (std::uintptr_t i = buffer_addr, count = 0; i < binary_size; i += count)
 		{
-			count = disassemble((unsigned char*)buffer + i, buff_size - i, i, disassembled);
+			count = disassemble((unsigned char*)binary_buffer + i, binary_size - i, i, disassembled);
 			instructions[0] = 0;
 			for (std::uintptr_t e = 0; e < count; e++)
 			{
-				sprintf(instructions + strlen(instructions), "%02x ", buffer[i + e]);
+				sprintf(instructions + strlen(instructions), "%02x ", binary_buffer[i + e]);
 			}
 			code.push_back({ instructions, disassembled });
 			IBuffer ibuffer;
@@ -1027,10 +1226,25 @@ std::vector<Function> get_all_go_functions(char* buffer, size_t buff_size)
 		{
 			break;
 		}
+
+		auto fmt = boost::format("gofunc_%1%") % std::to_string(buffer_addr);
+		functions.push_back({ buffer_addr, fmt.str(), ibuffers, false });
+		auto end = std::chrono::high_resolution_clock::now();
+		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 		
-		functions.push_back({ buffer_addr, std::format("gofunc_{}", buffer_addr), ibuffers, false });
+		auto dfmt = boost::format("The duration of disassembling function at %1$#x was %2% milliseconds.\n") % buffer_addr % duration.count();
+		std::string debug_string = dfmt.str();
+
+		OutputDebugStringA(debug_string.c_str());
+
 	}
 	while (buffer_addr != OUT_OF_BOUNDS);
+
+	auto function_end = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::seconds>(function_end - function_start);
+	auto dfmt = boost::format("The duration of disassembling all functions was %1% seconds.\n") % duration.count();
+	std::string debug_string = dfmt.str();
+	OutputDebugStringA(debug_string.c_str());
 
 	return functions;
 }

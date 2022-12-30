@@ -1,7 +1,9 @@
+#pragma once
 #include <windows.h>
 #include "ansi.h"
 
-class GUI {
+class GUI
+{
 public:
 	const std::string cyan_plus = Colors[White] + "[" + Colors[Cyan] + "+" + Colors[White] + "]";
 	const std::string purple_plus = Colors[White] + "[" + Colors[Purple] + "+" + Colors[White] + "]";
